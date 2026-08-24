@@ -1,6 +1,7 @@
 import { describe, expect, it } from "bun:test";
 import type { Chart, ChartBody } from "caelus";
-import { computeJwgea } from "../src/core/jwgea.js";
+import { Effect } from "effect";
+import { computeJwgea } from "../src/core/Jwgea.js";
 
 function body(lon: number, sign: string): ChartBody {
   return {
@@ -46,7 +47,7 @@ describe("computeJwgea", () => {
   it("derives PPP from Pluto longitude + 180 and uses modern rulers", () => {
     // true node at 210deg -> Scorpio -> modern ruler Pluto
     const chart = chartWith(210, "Scorpio", 45);
-    const jwgea = computeJwgea(chart);
+    const jwgea = Effect.runSync(computeJwgea(chart));
 
     expect(jwgea.plutoPolarityPoint).toBeCloseTo(225, 5);
     expect(jwgea.northNodeSign).toBe("Scorpio");
@@ -58,7 +59,7 @@ describe("computeJwgea", () => {
 
   it("resolves Aquarius node to Uranus (modern rulership)", () => {
     const chart = chartWith(330, "Aquarius", 10);
-    const jwgea = computeJwgea(chart);
+    const jwgea = Effect.runSync(computeJwgea(chart));
 
     expect(jwgea.northNodeSign).toBe("Aquarius");
     expect(jwgea.northNodeRuler).toBe("uranus");
@@ -70,19 +71,20 @@ describe("computeJwgea", () => {
       mars: body(90, "Cancer"),
       sun: body(0, "Aries"),
     });
-    const jwgea = computeJwgea(chart);
+    const jwgea = Effect.runSync(computeJwgea(chart));
 
     expect(jwgea.skippedSteps).toContain("mars");
     expect(jwgea.skippedSteps).not.toContain("sun");
-    expect(jwgea.skippedSteps).not.toContain("true_node");
+    expect(jwgea.skippedSteps).not.toContain("true_node" as any);
   });
 
-  it("throws when Pluto is unavailable", () => {
+  it("fails with EphemerisError when Pluto is unavailable", () => {
     const chart = {
       ...chartWith(210, "Scorpio", 45),
       bodies: { true_node: body(210, "Scorpio") },
     } as unknown as Chart;
 
-    expect(() => computeJwgea(chart)).toThrow(/Pluto/);
+    const exit = Effect.runSyncExit(computeJwgea(chart));
+    expect(exit._tag).toBe("Failure");
   });
 });

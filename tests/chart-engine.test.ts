@@ -12,7 +12,7 @@ import {
 } from "../src/core/Schema.js";
 
 describe("ChartEngine Service", () => {
-  it("calculates natal chart with Caelus live layer", async () => {
+  it("calculates natal chart with Caelus live layer (defaults to porphyry)", async () => {
     const program = Effect.gen(function* () {
       const engine = yield* ChartEngine;
       return yield* engine.calculate(
@@ -20,7 +20,6 @@ describe("ChartEngine Service", () => {
           whenUtc: "2024-03-21T12:00:00Z",
           latitude: Latitude.make(-34.6037),
           longitude: Longitude.make(-58.3816),
-          houseSystem: "placidus",
         }),
       );
     }).pipe(Effect.provide(ChartEngine.layer));
@@ -30,10 +29,11 @@ describe("ChartEngine Service", () => {
     expect(result.whenUtc).toBe("2024-03-21T12:00:00Z");
     expect(result.location.latitude as number).toBe(-34.6037);
     expect(result.location.longitude as number).toBe(-58.3816);
+    expect(result.chart.houseSystem).toBe("porphyry");
     expect(result.chart.bodies).toBeDefined();
     expect(result.chart.angles.asc).toBeDefined();
     expect(result.jwgea).toBeDefined();
-    expect(result.jwgea.northNodeRuler).not.toBe("unknown");
+    expect(result.jwgea.northNodeRuler).not.toBe("unknown" as any);
     expect(result.jwgea.skippedSteps).toBeDefined();
   });
 
@@ -76,8 +76,8 @@ describe("ChartEngine Service", () => {
       chart: {
         jdUt: 2451545,
         zodiac: "tropical",
-        houseSystem: "placidus",
-        houseSystemRequested: "placidus",
+        houseSystem: "porphyry",
+        houseSystemRequested: "porphyry",
         bodies: {} as Chart["bodies"],
         unavailable: [],
         warnings: [],

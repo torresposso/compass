@@ -1,4 +1,4 @@
-# 0001 — JWGEA scope, nodal basis, modern rulership & tropical-only
+# 0001 — JWGEA scope, nodal basis, modern rulership, tropical-only & Porphyry houses
 
 - **Status:** Accepted
 - **Date:** 2026-08-24
@@ -14,6 +14,7 @@ engineering answer and would surprise a future reader:
 2. True node vs mean node as the basis of the nodal axis?
 3. Traditional (7-planet) vs modern (outer-planet) domicile rulership?
 4. Tropical vs sidereal zodiac?
+5. Canonical house system for evolutionary astrology?
 
 ## Decision
 
@@ -28,10 +29,12 @@ engineering answer and would surprise a future reader:
   its own `MODERN_SIGN_RULERS`.)
 - **Compass is tropical-only.** The `zodiac` parameter was removed from the
   input; vedic/sidereal is explicitly out of scope.
+- **Porphyry is the standard house system.** In Jeffrey Wolf Green's Evolutionary
+  Astrology, the Porphyry house system is standard. Compass defaults to `porphyry`.
 
 ## Consequences
 
-- `src/core/jwgea.ts` is a pure function `computeJwgea(chart)`; `natal.ts`
+- `src/core/Jwgea.ts` provides `computeJwgea(chart)` returning an `Effect`; `Natal.ts`
   calls it and always attaches the result.
 - A chart without Pluto (outside Caelus' validated ephemeris range) cannot
   yield JWGEA and surfaces as an `EphemerisError`.

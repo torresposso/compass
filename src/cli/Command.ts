@@ -39,23 +39,14 @@ export function parseArgvToObject(args: string[]): Record<string, unknown> {
     const arg = args[i];
     if (!arg) continue;
 
-    if (arg.startsWith("--")) {
-      const key = arg.slice(2);
+    const flagKey = extractFlagKey(arg);
+    if (flagKey !== null) {
       const next = args[i + 1];
       if (next !== undefined && !isFlag(next)) {
-        result[key] = coercePrimitive(next);
+        result[flagKey] = coercePrimitive(next);
         i++;
       } else {
-        result[key] = true;
-      }
-    } else if (arg.startsWith("-") && arg.length > 1 && !isNumeric(arg)) {
-      const key = arg.slice(1);
-      const next = args[i + 1];
-      if (next !== undefined && !isFlag(next)) {
-        result[key] = coercePrimitive(next);
-        i++;
-      } else {
-        result[key] = true;
+        result[flagKey] = true;
       }
     } else {
       positional.push(arg);
@@ -69,11 +60,18 @@ export function parseArgvToObject(args: string[]): Record<string, unknown> {
   return result;
 }
 
+function extractFlagKey(arg: string): string | null {
+  if (arg.startsWith("--") && arg.length > 2) {
+    return arg.slice(2);
+  }
+  if (arg.startsWith("-") && arg.length > 1 && !isNumeric(arg)) {
+    return arg.slice(1);
+  }
+  return null;
+}
+
 function isFlag(val: string): boolean {
-  return (
-    (val.startsWith("--") && val.length > 2) ||
-    (val.startsWith("-") && val.length > 1 && !isNumeric(val))
-  );
+  return extractFlagKey(val) !== null;
 }
 
 function isNumeric(val: string): boolean {

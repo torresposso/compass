@@ -38,6 +38,7 @@ describe("CLI Entrypoint & Fast-Path", () => {
     expect(res.status).toBe("ok");
     expect(res.name).toBe("compass");
     expect(res.version).toBe(VERSION);
+    expect(typeof res.timestamp).toBe("string");
   });
 
   it("calculates chart on the fly via chart calculate command", async () => {
@@ -51,5 +52,8 @@ describe("CLI Entrypoint & Fast-Path", () => {
     expect(res.whenUtc).toBe("2024-03-21T12:00:00Z");
     expect(res.location).toBeDefined();
     expect(res.bodies).toBeDefined();
+    expect(res.houses).toBeDefined();
+    expect(res.aspects).toBeDefined();
+    expect(res.jwgea).toBeDefined();
   });
 });

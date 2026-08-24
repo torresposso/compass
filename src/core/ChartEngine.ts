@@ -2,7 +2,7 @@ import { Engine } from "caelus";
 import { embeddedData } from "caelus/data-embedded";
 import { Context, Effect, Layer } from "effect";
 import type { EphemerisError, ValidationError } from "./Errors.js";
-import { calculateNatal } from "./natal.js";
+import { calculateNatal } from "./Natal.js";
 import type { CalculateChartInputType, NatalChart } from "./Schema.js";
 
 // Singleton Caelus Engine instance initialized with embedded astronomical coefficients
@@ -33,7 +33,6 @@ export class ChartEngine extends Context.Service<
         whenUtc: input.whenUtc,
         latitude: input.latitude,
         longitude: input.longitude,
-        houseSystem: input.houseSystem,
       });
 
       return yield* calculateNatal(input, defaultCaelusEngine);

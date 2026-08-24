@@ -1,5 +1,5 @@
 import { type AxiCliCommand, type AxiCliOptions, runAxiCli } from "axi-sdk-js";
-import { Effect, Schema } from "effect";
+import { DateTime, Effect, Schema } from "effect";
 import { ChartEngine } from "../core/ChartEngine.js";
 import { CalculateChartInput } from "../core/Schema.js";
 import { VERSION } from "../Version.js";
@@ -10,12 +10,13 @@ import { makeCommand } from "./Command.js";
  */
 export const handlePing = Effect.fn("handlePing")(function* (_: Record<string, never>) {
   yield* Effect.logDebug("executing ping smoke test");
+  const now = yield* DateTime.now;
   return {
     status: "ok",
     name: "compass",
     version: VERSION,
     engine: "caelus+effect",
-    timestamp: new Date().toISOString(),
+    timestamp: DateTime.formatIso(now),
   };
 });
 
@@ -40,7 +41,9 @@ export const handleChartCalculate = Effect.fn("handleChartCalculate")(function* 
     },
     ascendant: result.chart.angles.asc,
     mc: result.chart.angles.mc,
+    houses: result.chart.cusps,
     bodies: result.chart.bodies,
+    aspects: result.chart.aspects,
     jwgea: result.jwgea,
   };
 });
@@ -55,16 +58,16 @@ export const chartCalculateCommand: AxiCliCommand<undefined> = makeCommand(
 );
 
 export const compassCliOptions: AxiCliOptions<undefined> = {
-  description: "Deterministic Astrological Chart Engine & Profile Manager CLI",
+  description: "Deterministic Astrological Chart Engine & Profile Manager CLI (JWGEA Canonical)",
   version: VERSION,
-  topLevelHelp: `Compass - Astrological Chart Engine & Profile Management CLI
+  topLevelHelp: `Compass - Astrological Chart Engine & Profile Management CLI (JWGEA)
 
 USAGE:
   compass <command> [arguments] [flags]
 
 COMMANDS:
   ping               Smoke test & engine status check
-  chart calculate    Calculate chart on the fly (--whenUtc, --latitude, --longitude, --houseSystem)
+  chart calculate    Calculate natal chart on the fly (--whenUtc, --latitude, --longitude)
   chart natal        Calculate natal chart for a saved profile (<name>)
   profile list       List all saved birth profiles
   profile get        Get profile details (<name>)

@@ -1,4 +1,6 @@
 import { SIGNS } from "caelus";
+import { Option } from "effect";
+import { CelestialBody, ZodiacSign } from "./Schema.js";
 
 /**
  * Modern domicile rulership of each zodiac sign, Aries..Pisces.
@@ -7,7 +9,7 @@ import { SIGNS } from "caelus";
  * outer planets to their modern signs: Scorpio -> Pluto, Aquarius -> Uranus,
  * Pisces -> Neptune. Used by JWGEA to resolve the nodal rulers.
  */
-export const MODERN_SIGN_RULERS: Readonly<Record<string, string>> = {
+export const MODERN_SIGN_RULERS: Readonly<Record<ZodiacSign, CelestialBody>> = {
   Aries: "mars",
   Taurus: "venus",
   Gemini: "mercury",
@@ -25,24 +27,25 @@ export const MODERN_SIGN_RULERS: Readonly<Record<string, string>> = {
 /**
  * Sign name containing the given ecliptic longitude (degrees, [0, 360)).
  */
-export function signOfLongitude(longitude: number): string {
+export function signOfLongitude(longitude: number): ZodiacSign {
   const normalized = ((longitude % 360) + 360) % 360;
   const index = Math.min(SIGNS.length - 1, Math.floor(normalized / 30));
-  const sign = SIGNS[index];
-  if (sign === undefined) {
-    throw new Error(`No sign for longitude ${longitude}`);
-  }
+  const sign = SIGNS[index] as ZodiacSign;
   return sign;
 }
 
 /**
  * Modern domicile ruler of the sign containing the given longitude.
  */
-export function modernRulerOfLongitude(longitude: number): string {
+export function modernRulerOfLongitude(longitude: number): CelestialBody {
   const sign = signOfLongitude(longitude);
-  const ruler = MODERN_SIGN_RULERS[sign];
-  if (ruler === undefined) {
-    throw new Error(`No modern ruler defined for sign "${sign}"`);
-  }
-  return ruler;
+  return MODERN_SIGN_RULERS[sign];
+}
+
+/**
+ * Safe lookup of modern ruler for a sign.
+ */
+export function getModernSignRuler(sign: string): Option.Option<CelestialBody> {
+  const ruler = MODERN_SIGN_RULERS[sign as ZodiacSign];
+  return ruler ? Option.some(ruler) : Option.none();
 }

@@ -20,12 +20,6 @@ export type { Aspect, Body, BodyId, CaelusHouseSystem, Chart, ChartBodies, Chart
 export { BODIES, EXTRA_BODIES, HOUSE_SYSTEMS, normalizeHouseSystem, SIGNS };
 
 /**
- * Validated House System using Caelus canonical list.
- */
-export const HouseSystem = Schema.Literals(HOUSE_SYSTEMS);
-export type HouseSystem = typeof HouseSystem.Type;
-
-/**
  * Validated Zodiac Signs.
  */
 export const ZodiacSign = Schema.Literals(SIGNS as unknown as readonly [string, ...string[]]);
@@ -56,13 +50,11 @@ export const Longitude = Schema.Number.pipe(
 export type Longitude = typeof Longitude.Type;
 
 /**
- * Geographic observer coordinates for CLI / Input.
+ * Geographic observer location coordinates.
  */
 export class GeoLocation extends Schema.Class<GeoLocation>("compass/core/GeoLocation")({
   latitude: Latitude,
   longitude: Longitude,
-  name: Schema.optional(Schema.String),
-  altitudeMeters: Schema.optional(Schema.Number),
 }) {}
 
 /**
@@ -75,7 +67,19 @@ export const ProfileSlug = Schema.String.pipe(
 export type ProfileSlug = typeof ProfileSlug.Type;
 
 /**
+ * Persisted Soul / Individual birth record.
+ */
+export class Profile extends Schema.Class<Profile>("compass/core/Profile")({
+  slug: ProfileSlug,
+  name: Schema.String,
+  whenUtc: Schema.String,
+  location: GeoLocation,
+}) {}
+export type ProfileType = typeof Profile.Type;
+
+/**
  * Request payload for calculating a natal chart on the fly.
+ * Compass strictly uses Western Tropical zodiac and the Porphyry house system.
  */
 export class CalculateChartInput extends Schema.Class<CalculateChartInput>(
   "compass/core/CalculateChartInput",
@@ -83,7 +87,6 @@ export class CalculateChartInput extends Schema.Class<CalculateChartInput>(
   whenUtc: Schema.String,
   latitude: Latitude,
   longitude: Longitude,
-  houseSystem: Schema.optional(HouseSystem),
 }) {}
 export type CalculateChartInputType = typeof CalculateChartInput.Type;
 
@@ -92,16 +95,15 @@ export type CalculateChartInputType = typeof CalculateChartInput.Type;
  */
 export class JwgeaAnalysis extends Schema.Class<JwgeaAnalysis>("compass/core/JwgeaAnalysis")({
   plutoPolarityPoint: Schema.Number,
-  northNodeSign: Schema.String,
-  northNodeRuler: Schema.String,
-  southNodeSign: Schema.String,
-  southNodeRuler: Schema.String,
-  skippedSteps: Schema.Array(Schema.String),
+  northNodeSign: ZodiacSign,
+  northNodeRuler: CelestialBody,
+  southNodeSign: ZodiacSign,
+  southNodeRuler: CelestialBody,
+  skippedSteps: Schema.Array(CelestialBody),
 }) {}
 
 /**
- * Natal chart: a Compass chart computed for a birth instant, always carrying
- * its full JWGEA evolutionary analysis.
+ * Natal chart: the foundational soul blueprint for an individual birth instant.
  */
 export interface NatalChart {
   readonly kind: "natal";
