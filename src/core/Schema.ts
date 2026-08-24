@@ -72,7 +72,7 @@ export type ProfileSlug = typeof ProfileSlug.Type;
 export class Profile extends Schema.Class<Profile>("compass/core/Profile")({
   slug: ProfileSlug,
   name: Schema.String,
-  whenUtc: Schema.String,
+  whenUtc: Schema.DateTimeUtcFromString,
   location: GeoLocation,
 }) {}
 export type ProfileType = typeof Profile.Type;
