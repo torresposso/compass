@@ -1,7 +1,7 @@
 import { describe, expect, it } from "bun:test";
 import { tryFastPath } from "axi-sdk-js/fast-path";
-import { pingCommand } from "../src/cli/app.js";
-import { VERSION } from "../src/version.js";
+import { pingCommand } from "../src/cli/App.js";
+import { VERSION } from "../src/Version.js";
 
 describe("CLI Entrypoint & Fast-Path", () => {
   it("tryFastPath intercepts --version flag", () => {

@@ -1,7 +1,7 @@
 import { describe, expect, it } from "bun:test";
 import { AxiError } from "axi-sdk-js";
 import { Effect, Schema } from "effect";
-import { makeCommand, parseArgvToObject } from "../src/cli/command.js";
+import { makeCommand, parseArgvToObject } from "../src/cli/Command.js";
 
 describe("makeCommand Dispatcher", () => {
   it("parses and coerces argv flags correctly", () => {

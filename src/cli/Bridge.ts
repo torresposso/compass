@@ -6,7 +6,7 @@ import {
   ProfileAlreadyExistsError,
   ProfileNotFoundError,
   ValidationError,
-} from "../core/errors.js";
+} from "../core/Errors.js";
 
 export type AxiStructuredOutput = Record<string, unknown>;
 export type AxiRenderable = string | AxiStructuredOutput;

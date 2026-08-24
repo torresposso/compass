@@ -1,6 +1,6 @@
 import type { AxiCliCommand } from "axi-sdk-js";
 import { Effect, type Layer, Schema } from "effect";
-import { type AxiRenderable, runEffectToAxi } from "./bridge.js";
+import { type AxiRenderable, runEffectToAxi } from "./Bridge.js";
 
 /**
  * Creates an AXI CLI command that parses raw string flags/arguments using an Effect Schema,

@@ -1,14 +1,14 @@
 import { describe, expect, it } from "bun:test";
 import { AxiError } from "axi-sdk-js";
 import { Effect, Layer, Schema } from "effect";
-import { runEffectToAxi } from "../src/cli/bridge.js";
+import { runEffectToAxi } from "../src/cli/Bridge.js";
 import {
   DatabaseError,
   EphemerisError,
   ProfileNotFoundError,
   ValidationError,
-} from "../src/core/errors.js";
-import { Latitude } from "../src/core/schema.js";
+} from "../src/core/Errors.js";
+import { Latitude } from "../src/core/Schema.js";
 
 describe("runEffectToAxi Bridge", () => {
   it("unwraps successful effect returning primitive string", async () => {

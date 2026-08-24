@@ -1,7 +1,7 @@
 import { type AxiCliCommand, type AxiCliOptions, runAxiCli } from "axi-sdk-js";
 import { Effect, Schema } from "effect";
-import { VERSION } from "../version.js";
-import { makeCommand } from "./command.js";
+import { VERSION } from "../Version.js";
+import { makeCommand } from "./Command.js";
 
 /**
  * Smoke test / system status command.
