@@ -3,6 +3,17 @@
   "module": "index.ts",
   "type": "module",
   "private": true,
+  "bin": {
+    "compass": "./bin/compass.ts"
+  },
+  "scripts": {
+    "check": "biome check .",
+    "check:write": "biome check --write .",
+    "format": "biome format --write .",
+    "typecheck": "tsc --noEmit",
+    "test": "bun test",
+    "build": "bun build ./bin/compass.ts --compile --outfile dist/compass"
+  },
   "devDependencies": {
     "@biomejs/biome": "^2.5.10",
     "@types/bun": "latest"
