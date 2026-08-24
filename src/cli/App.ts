@@ -32,9 +32,9 @@ export const handleChartCalculate = Effect.fn("handleChartCalculate")(function* 
   input: CalculateChartInput,
 ) {
   const engine = yield* ChartEngine;
-  const result = yield* engine.calculate(input);
+  const result = yield* engine.natal(input);
   return {
-    whenUtc: result.whenUtc,
+    whenUtc: DateTime.formatIso(result.whenUtc),
     location: {
       latitude: result.location.latitude,
       longitude: result.location.longitude,

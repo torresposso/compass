@@ -49,7 +49,7 @@ describe("CLI Entrypoint & Fast-Path", () => {
     );
     expect(result).toBeObject();
     const res = result as Record<string, unknown>;
-    expect(res.whenUtc).toBe("2024-03-21T12:00:00Z");
+    expect(res.whenUtc).toBe("2024-03-21T12:00:00.000Z");
     expect(res.location).toBeDefined();
     expect(res.bodies).toBeDefined();
     expect(res.houses).toBeDefined();

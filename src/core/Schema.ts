@@ -13,7 +13,7 @@ import {
   type Position,
   SIGNS,
 } from "caelus";
-import { Schema } from "effect";
+import { type DateTime, Schema } from "effect";
 
 // Re-export Caelus native types
 export type { Aspect, Body, BodyId, CaelusHouseSystem, Chart, ChartBodies, ChartBody, Position };
@@ -84,7 +84,7 @@ export type ProfileType = typeof Profile.Type;
 export class CalculateChartInput extends Schema.Class<CalculateChartInput>(
   "compass/core/CalculateChartInput",
 )({
-  whenUtc: Schema.String,
+  whenUtc: Schema.DateTimeUtcFromString,
   latitude: Latitude,
   longitude: Longitude,
 }) {}
@@ -107,7 +107,7 @@ export class JwgeaAnalysis extends Schema.Class<JwgeaAnalysis>("compass/core/Jwg
  */
 export interface NatalChart {
   readonly kind: "natal";
-  readonly whenUtc: string;
+  readonly whenUtc: DateTime.Utc;
   readonly location: GeoLocation;
   readonly chart: Chart;
   readonly jwgea: JwgeaAnalysis;
