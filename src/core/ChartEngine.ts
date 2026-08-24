@@ -1,4 +1,4 @@
-import { type Chart, Engine, normalizeHouseSystem, SIGNS } from "caelus";
+import { type BodyId, type Chart, Engine, normalizeHouseSystem, SIGNS } from "caelus";
 import { embeddedData } from "caelus/data-embedded";
 import { Context, DateTime, Effect, Layer, Option } from "effect";
 import { EphemerisError } from "./Errors.js";
@@ -7,6 +7,9 @@ import {
   type CelestialBody,
   GeoLocation,
   JwgeaAnalysis,
+  JwgeaNodalPoint,
+  JwgeaPoint,
+  JwgeaSkippedStep,
   type NatalChart,
   type ZodiacSign,
 } from "./Schema.js";
@@ -75,12 +78,44 @@ function angularSeparation(a: number, b: number): number {
 }
 
 /**
- * Compute the Jeffrey Wolf Green Evolutionary Astrology (JWGEA) analysis for a
- * chart.
+ * Determines which house (1..12) contains a given ecliptic longitude using chart cusps.
+ */
+function houseOfLongitude(longitude: number, cusps: readonly number[]): number {
+  const normLon = ((longitude % 360) + 360) % 360;
+  if (!cusps || cusps.length < 12) return 1;
+
+  for (let i = 0; i < 12; i++) {
+    const rawCurrent = cusps[i];
+    const rawNext = cusps[(i + 1) % 12];
+    if (rawCurrent === undefined || rawNext === undefined) continue;
+
+    const cuspCurrent = ((rawCurrent % 360) + 360) % 360;
+    const cuspNext = ((rawNext % 360) + 360) % 360;
+
+    if (cuspCurrent < cuspNext) {
+      if (normLon >= cuspCurrent && normLon < cuspNext) {
+        return i + 1;
+      }
+    } else {
+      // House crosses 0° Aries
+      if (normLon >= cuspCurrent || normLon < cuspNext) {
+        return i + 1;
+      }
+    }
+  }
+
+  return 1;
+}
+
+/**
+ * Compute the Jeffrey Wolf Green Evolutionary Astrology (JWGEA) analysis for a chart.
  *
- * Derives the Pluto Polarity Point from Pluto, the nodal axis from the TRUE node
- * (South Node = North + 180), modern domicile rulers of each node, and the
- * skipped-step planets (bodies squaring the nodal axis).
+ * Deterministically derives:
+ * 1. Pluto Polarity Point (PPP = Pluto + 180°), its sign and Porphyry house.
+ * 2. True North Node & South Node positions, houses, and modern domicile rulers with their house/sign.
+ * 3. Skipped Steps (planets squaring nodal axis within 6° orb) with directional resolution vector:
+ *    - resolvedVia "north_node" if moving from South Node to North Node.
+ *    - resolvedVia "south_node" if moving from North Node to South Node.
  */
 const computeJwgea = Effect.fn("ChartEngine.computeJwgea")(function* (
   chart: Chart,
@@ -102,9 +137,20 @@ const computeJwgea = Effect.fn("ChartEngine.computeJwgea")(function* (
     });
   }
 
-  const plutoPolarityPoint = (pluto.lon + 180) % 360;
+  // 1. Pluto Polarity Point
+  const pppLongitude = (pluto.lon + 180) % 360;
+  const pppSign = signOfLongitude(pppLongitude);
+  const pppHouse = houseOfLongitude(pppLongitude, chart.cusps);
 
+  const plutoPolarityPoint = new JwgeaPoint({
+    longitude: pppLongitude,
+    sign: pppSign,
+    house: pppHouse,
+  });
+
+  // 2. North Node & Ruler
   const northNodeSign = trueNode.sign as ZodiacSign;
+  const northNodeHouse = trueNode.house ?? houseOfLongitude(trueNode.lon, chart.cusps);
   const northNodeRulerOpt = getModernSignRuler(northNodeSign);
   if (northNodeRulerOpt._tag === "None") {
     return yield* new EphemerisError({
@@ -112,32 +158,73 @@ const computeJwgea = Effect.fn("ChartEngine.computeJwgea")(function* (
     });
   }
   const northNodeRuler = northNodeRulerOpt.value;
+  const northRulerBody = chart.bodies[northNodeRuler as BodyId];
+  const northNodeRulerSign =
+    (northRulerBody?.sign as ZodiacSign) ?? signOfLongitude(northRulerBody?.lon ?? 0);
+  const northNodeRulerHouse =
+    northRulerBody?.house ??
+    (northRulerBody ? houseOfLongitude(northRulerBody.lon, chart.cusps) : 1);
 
+  const northNode = new JwgeaNodalPoint({
+    longitude: trueNode.lon,
+    sign: northNodeSign,
+    house: northNodeHouse,
+    ruler: northNodeRuler,
+    rulerSign: northNodeRulerSign,
+    rulerHouse: northNodeRulerHouse,
+  });
+
+  // 3. South Node & Ruler
   const southNodeLongitude = (trueNode.lon + 180) % 360;
   const southNodeSign = signOfLongitude(southNodeLongitude);
+  const southNodeHouse = houseOfLongitude(southNodeLongitude, chart.cusps);
   const southNodeRuler = modernRulerOfLongitude(southNodeLongitude);
+  const southRulerBody = chart.bodies[southNodeRuler as BodyId];
+  const southNodeRulerSign =
+    (southRulerBody?.sign as ZodiacSign) ?? signOfLongitude(southRulerBody?.lon ?? 0);
+  const southNodeRulerHouse =
+    southRulerBody?.house ??
+    (southRulerBody ? houseOfLongitude(southRulerBody.lon, chart.cusps) : 1);
 
-  // Skipped steps: planets squaring the nodal axis. Caelus excludes the nodes
-  // from aspect search by default, so we measure the square directly from the
-  // body longitudes against both nodes (the axis is a line: North + South).
-  const skippedSteps: Array<CelestialBody> = [];
+  const southNode = new JwgeaNodalPoint({
+    longitude: southNodeLongitude,
+    sign: southNodeSign,
+    house: southNodeHouse,
+    ruler: southNodeRuler,
+    rulerSign: southNodeRulerSign,
+    rulerHouse: southNodeRulerHouse,
+  });
+
+  // 4. Skipped steps with directional resolution vector
+  const skippedSteps: Array<JwgeaSkippedStep> = [];
   for (const [id, body] of Object.entries(chart.bodies)) {
     if (body === undefined) continue;
     if (NODE_BODY_IDS.has(id)) continue;
+
     const sepTrue = angularSeparation(body.lon, trueNode.lon);
     const sepSouth = angularSeparation(body.lon, southNodeLongitude);
     const distFromSquare = Math.min(Math.abs(sepTrue - 90), Math.abs(sepSouth - 90));
-    if (distFromSquare <= SQUARE_ORB && !skippedSteps.includes(id as CelestialBody)) {
-      skippedSteps.push(id as CelestialBody);
+
+    if (distFromSquare <= SQUARE_ORB && !skippedSteps.some((s) => s.body === id)) {
+      // In JWGEA, calculate zodiacal distance from South Node to planet:
+      // If ((body.lon - southNodeLongitude + 360) % 360) < 180, it moved past the South Node towards North Node.
+      const distFromSouthZodiacal = (body.lon - southNodeLongitude + 360) % 360;
+      const resolvedVia: "north_node" | "south_node" =
+        distFromSouthZodiacal < 180 ? "north_node" : "south_node";
+
+      skippedSteps.push(
+        new JwgeaSkippedStep({
+          body: id as CelestialBody,
+          resolvedVia,
+        }),
+      );
     }
   }
 
   return new JwgeaAnalysis({
     plutoPolarityPoint,
-    northNodeSign,
-    northNodeRuler,
-    southNodeSign,
-    southNodeRuler,
+    northNode,
+    southNode,
     skippedSteps,
   });
 });

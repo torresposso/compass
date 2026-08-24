@@ -6,6 +6,8 @@ import {
   CalculateChartInput,
   GeoLocation,
   JwgeaAnalysis,
+  JwgeaNodalPoint,
+  JwgeaPoint,
   Latitude,
   Longitude,
   type NatalChart,
@@ -35,7 +37,7 @@ describe("ChartEngine Service", () => {
     expect(result.chart.bodies).toBeDefined();
     expect(result.chart.angles.asc).toBeDefined();
     expect(result.jwgea).toBeDefined();
-    expect(result.jwgea.northNodeRuler).toBeDefined();
+    expect(result.jwgea.northNode.ruler).toBeDefined();
     expect(result.jwgea.skippedSteps).toBeDefined();
   });
 
@@ -61,11 +63,27 @@ describe("ChartEngine Service", () => {
         longitude: Longitude.make(20),
       }),
       jwgea: new JwgeaAnalysis({
-        plutoPolarityPoint: 0,
-        northNodeSign: "Leo",
-        northNodeRuler: "sun",
-        southNodeSign: "Aquarius",
-        southNodeRuler: "uranus",
+        plutoPolarityPoint: new JwgeaPoint({
+          longitude: 0,
+          sign: "Aries",
+          house: 1,
+        }),
+        northNode: new JwgeaNodalPoint({
+          longitude: 120,
+          sign: "Leo",
+          house: 9,
+          ruler: "sun",
+          rulerSign: "Leo",
+          rulerHouse: 9,
+        }),
+        southNode: new JwgeaNodalPoint({
+          longitude: 300,
+          sign: "Aquarius",
+          house: 3,
+          ruler: "uranus",
+          rulerSign: "Aquarius",
+          rulerHouse: 3,
+        }),
         skippedSteps: [],
       }),
       chart: {
@@ -118,18 +136,26 @@ describe("ChartEngine Service", () => {
     expect(pluto).toBeDefined();
     if (pluto) {
       const expectedPpp = (pluto.lon + 180) % 360;
-      expect(result.jwgea.plutoPolarityPoint).toBeCloseTo(expectedPpp, 4);
+      expect(result.jwgea.plutoPolarityPoint.longitude).toBeCloseTo(expectedPpp, 4);
+      expect(result.jwgea.plutoPolarityPoint.house).toBeGreaterThanOrEqual(1);
+      expect(result.jwgea.plutoPolarityPoint.house).toBeLessThanOrEqual(12);
     }
 
     // Verify Modern Rulers (e.g. Scorpio -> Pluto, Aquarius -> Uranus, Pisces -> Neptune)
-    const northSign = result.jwgea.northNodeSign;
+    const northSign = result.jwgea.northNode.sign;
     if (northSign === "Scorpio") {
-      expect(result.jwgea.northNodeRuler).toBe("pluto");
+      expect(result.jwgea.northNode.ruler).toBe("pluto");
     } else if (northSign === "Sagittarius") {
-      expect(result.jwgea.northNodeRuler).toBe("jupiter");
+      expect(result.jwgea.northNode.ruler).toBe("jupiter");
     }
 
-    // Verify skipped steps is an array
+    expect(result.jwgea.northNode.rulerHouse).toBeGreaterThanOrEqual(1);
+    expect(result.jwgea.southNode.rulerHouse).toBeGreaterThanOrEqual(1);
+
+    // Verify skipped steps structure
     expect(Array.isArray(result.jwgea.skippedSteps)).toBe(true);
+    for (const step of result.jwgea.skippedSteps) {
+      expect(["north_node", "south_node"]).toContain(step.resolvedVia);
+    }
   });
 });

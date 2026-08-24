@@ -91,15 +91,44 @@ export class CalculateChartInput extends Schema.Class<CalculateChartInput>(
 export type CalculateChartInputType = typeof CalculateChartInput.Type;
 
 /**
- * Jeffrey Wolf Green Evolutionary Astrology (JWGEA) points.
+ * Calculated point with longitude, sign and Porphyry house.
+ */
+export class JwgeaPoint extends Schema.Class<JwgeaPoint>("compass/core/JwgeaPoint")({
+  longitude: Schema.Number,
+  sign: ZodiacSign,
+  house: Schema.Number,
+}) {}
+
+/**
+ * JWGEA Nodal Axis point with its sign, house, and modern ruler positioning.
+ */
+export class JwgeaNodalPoint extends Schema.Class<JwgeaNodalPoint>("compass/core/JwgeaNodalPoint")({
+  longitude: Schema.Number,
+  sign: ZodiacSign,
+  house: Schema.Number,
+  ruler: CelestialBody,
+  rulerSign: ZodiacSign,
+  rulerHouse: Schema.Number,
+}) {}
+
+/**
+ * Skipped Step: celestial body squaring the nodal axis with directional resolution vector.
+ */
+export class JwgeaSkippedStep extends Schema.Class<JwgeaSkippedStep>(
+  "compass/core/JwgeaSkippedStep",
+)({
+  body: CelestialBody,
+  resolvedVia: Schema.Literals(["north_node", "south_node"] as const),
+}) {}
+
+/**
+ * Jeffrey Wolf Green Evolutionary Astrology (JWGEA) canonical calculations.
  */
 export class JwgeaAnalysis extends Schema.Class<JwgeaAnalysis>("compass/core/JwgeaAnalysis")({
-  plutoPolarityPoint: Schema.Number,
-  northNodeSign: ZodiacSign,
-  northNodeRuler: CelestialBody,
-  southNodeSign: ZodiacSign,
-  southNodeRuler: CelestialBody,
-  skippedSteps: Schema.Array(CelestialBody),
+  plutoPolarityPoint: JwgeaPoint,
+  northNode: JwgeaNodalPoint,
+  southNode: JwgeaNodalPoint,
+  skippedSteps: Schema.Array(JwgeaSkippedStep),
 }) {}
 
 /**
