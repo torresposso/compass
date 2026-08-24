@@ -1,22 +1,56 @@
 import { type AxiCliCommand, type AxiCliOptions, runAxiCli } from "axi-sdk-js";
 import { Effect, Schema } from "effect";
+import { CalculateChartInput, ChartEngine } from "../core/ChartEngine.js";
 import { VERSION } from "../Version.js";
 import { makeCommand } from "./Command.js";
 
 /**
+ * Ping handler defined with Effect.fn for proper span tracing & debugging.
+ */
+export const handlePing = Effect.fn("handlePing")(function* (_: Record<string, never>) {
+  yield* Effect.logDebug("executing ping smoke test");
+  return {
+    status: "ok",
+    name: "compass",
+    version: VERSION,
+    engine: "caelus+effect",
+    timestamp: new Date().toISOString(),
+  };
+});
+
+/**
  * Smoke test / system status command.
  */
-export const pingCommand: AxiCliCommand<undefined> = makeCommand(Schema.Struct({}), () =>
-  Effect.gen(function* () {
-    yield* Effect.logDebug("executing ping smoke test");
-    return {
-      status: "ok",
-      name: "compass",
-      version: VERSION,
-      engine: "caelus+effect",
-      timestamp: new Date().toISOString(),
-    };
-  }),
+export const pingCommand: AxiCliCommand<undefined> = makeCommand(Schema.Struct({}), handlePing);
+
+/**
+ * Chart calculate handler defined with Effect.fn consuming ChartEngine service.
+ */
+export const handleChartCalculate = Effect.fn("handleChartCalculate")(function* (
+  input: CalculateChartInput,
+) {
+  const engine = yield* ChartEngine;
+  const result = yield* engine.calculate(input);
+  return {
+    whenUtc: result.whenUtc,
+    location: {
+      latitude: result.location.latitude,
+      longitude: result.location.longitude,
+    },
+    ascendant: result.chart.angles.asc,
+    mc: result.chart.angles.mc,
+    bodies: result.chart.bodies,
+    jwgea: result.jwgea,
+  };
+});
+
+/**
+ * Calculate command with ChartEngine.layer injected.
+ */
+export const chartCalculateCommand: AxiCliCommand<undefined> = makeCommand(
+  CalculateChartInput,
+  handleChartCalculate,
+  ChartEngine.layer,
 );
 
 export const compassCliOptions: AxiCliOptions<undefined> = {
@@ -29,7 +63,7 @@ USAGE:
 
 COMMANDS:
   ping               Smoke test & engine status check
-  chart calculate    Calculate chart on the fly (--when, --lat, --lon, --house-system)
+  chart calculate    Calculate chart on the fly (--whenUtc, --latitude, --longitude, --houseSystem)
   chart natal        Calculate natal chart for a saved profile (<name>)
   profile list       List all saved birth profiles
   profile get        Get profile details (<name>)
@@ -57,6 +91,7 @@ FLAGS:
   },
   commands: {
     ping: pingCommand,
+    "chart calculate": chartCalculateCommand,
   },
 };
 

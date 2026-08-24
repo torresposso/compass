@@ -39,4 +39,17 @@ describe("CLI Entrypoint & Fast-Path", () => {
     expect(res.name).toBe("compass");
     expect(res.version).toBe(VERSION);
   });
+
+  it("calculates chart on the fly via chart calculate command", async () => {
+    const { chartCalculateCommand } = await import("../src/cli/App.js");
+    const result = await chartCalculateCommand(
+      ["--whenUtc", "2024-03-21T12:00:00Z", "--latitude", "-34.6037", "--longitude", "-58.3816"],
+      undefined,
+    );
+    expect(result).toBeObject();
+    const res = result as Record<string, unknown>;
+    expect(res.whenUtc).toBe("2024-03-21T12:00:00Z");
+    expect(res.location).toBeDefined();
+    expect(res.bodies).toBeDefined();
+  });
 });
