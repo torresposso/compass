@@ -4,7 +4,6 @@ import {
   type Body,
   type BodyId,
   type HouseSystem as CaelusHouseSystem,
-  type Zodiac as CaelusZodiac,
   type Chart,
   type ChartBodies,
   type ChartBody,
@@ -17,17 +16,7 @@ import {
 import { Schema } from "effect";
 
 // Re-export Caelus native types
-export type {
-  Aspect,
-  Body,
-  BodyId,
-  CaelusHouseSystem,
-  CaelusZodiac,
-  Chart,
-  ChartBodies,
-  ChartBody,
-  Position,
-};
+export type { Aspect, Body, BodyId, CaelusHouseSystem, Chart, ChartBodies, ChartBody, Position };
 export { BODIES, EXTRA_BODIES, HOUSE_SYSTEMS, normalizeHouseSystem, SIGNS };
 
 /**
@@ -35,15 +24,6 @@ export { BODIES, EXTRA_BODIES, HOUSE_SYSTEMS, normalizeHouseSystem, SIGNS };
  */
 export const HouseSystem = Schema.Literals(HOUSE_SYSTEMS);
 export type HouseSystem = typeof HouseSystem.Type;
-
-/**
- * Validated Zodiac systems.
- */
-export const Zodiac = Schema.Union([
-  Schema.Literal("tropical"),
-  Schema.String.pipe(Schema.check(Schema.isPattern(/^sidereal:.+$/))),
-]);
-export type Zodiac = typeof Zodiac.Type;
 
 /**
  * Validated Zodiac Signs.
@@ -95,6 +75,19 @@ export const ProfileSlug = Schema.String.pipe(
 export type ProfileSlug = typeof ProfileSlug.Type;
 
 /**
+ * Request payload for calculating a natal chart on the fly.
+ */
+export class CalculateChartInput extends Schema.Class<CalculateChartInput>(
+  "compass/core/CalculateChartInput",
+)({
+  whenUtc: Schema.String,
+  latitude: Latitude,
+  longitude: Longitude,
+  houseSystem: Schema.optional(HouseSystem),
+}) {}
+export type CalculateChartInputType = typeof CalculateChartInput.Type;
+
+/**
  * Jeffrey Wolf Green Evolutionary Astrology (JWGEA) points.
  */
 export class JwgeaAnalysis extends Schema.Class<JwgeaAnalysis>("compass/core/JwgeaAnalysis")({
@@ -107,11 +100,19 @@ export class JwgeaAnalysis extends Schema.Class<JwgeaAnalysis>("compass/core/Jwg
 }) {}
 
 /**
- * Enriched Compass Chart result containing Caelus chart + JWGEA metadata.
+ * Natal chart: a Compass chart computed for a birth instant, always carrying
+ * its full JWGEA evolutionary analysis.
  */
-export interface CompassChart {
-  readonly chart: Chart;
-  readonly jwgea?: JwgeaAnalysis;
-  readonly location: GeoLocation;
+export interface NatalChart {
+  readonly kind: "natal";
   readonly whenUtc: string;
+  readonly location: GeoLocation;
+  readonly chart: Chart;
+  readonly jwgea: JwgeaAnalysis;
 }
+
+/**
+ * Discriminated union of every Compass chart kind. Phase 2 materializes only
+ * `NatalChart`; `progressed`, `transits`, and `synastry` join in later phases.
+ */
+export type CompassChart = NatalChart;

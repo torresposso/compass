@@ -1,6 +1,7 @@
 import { type AxiCliCommand, type AxiCliOptions, runAxiCli } from "axi-sdk-js";
 import { Effect, Schema } from "effect";
-import { CalculateChartInput, ChartEngine } from "../core/ChartEngine.js";
+import { ChartEngine } from "../core/ChartEngine.js";
+import { CalculateChartInput } from "../core/Schema.js";
 import { VERSION } from "../Version.js";
 import { makeCommand } from "./Command.js";
 

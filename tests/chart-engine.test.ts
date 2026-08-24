@@ -1,11 +1,18 @@
 import { describe, expect, it } from "bun:test";
 import type { Chart } from "caelus";
 import { Effect } from "effect";
-import { CalculateChartInput, ChartEngine } from "../src/core/ChartEngine.js";
-import { type CompassChart, GeoLocation, Latitude, Longitude } from "../src/core/Schema.js";
+import { ChartEngine } from "../src/core/ChartEngine.js";
+import {
+  CalculateChartInput,
+  GeoLocation,
+  JwgeaAnalysis,
+  Latitude,
+  Longitude,
+  type NatalChart,
+} from "../src/core/Schema.js";
 
 describe("ChartEngine Service", () => {
-  it("calculates chart with Caelus live layer", async () => {
+  it("calculates natal chart with Caelus live layer", async () => {
     const program = Effect.gen(function* () {
       const engine = yield* ChartEngine;
       return yield* engine.calculate(
@@ -14,19 +21,20 @@ describe("ChartEngine Service", () => {
           latitude: Latitude.make(-34.6037),
           longitude: Longitude.make(-58.3816),
           houseSystem: "placidus",
-          zodiac: "tropical",
-          includeJwgea: true,
         }),
       );
     }).pipe(Effect.provide(ChartEngine.layer));
 
     const result = await Effect.runPromise(program);
+    expect(result.kind).toBe("natal");
     expect(result.whenUtc).toBe("2024-03-21T12:00:00Z");
     expect(result.location.latitude as number).toBe(-34.6037);
     expect(result.location.longitude as number).toBe(-58.3816);
     expect(result.chart.bodies).toBeDefined();
     expect(result.chart.angles.asc).toBeDefined();
     expect(result.jwgea).toBeDefined();
+    expect(result.jwgea.northNodeRuler).not.toBe("unknown");
+    expect(result.jwgea.skippedSteps).toBeDefined();
   });
 
   it("fails with ValidationError on invalid ISO date format", async () => {
@@ -50,7 +58,21 @@ describe("ChartEngine Service", () => {
   });
 
   it("supports testLayer with deterministic fake chart", async () => {
-    const fakeChart: CompassChart = {
+    const fakeChart: NatalChart = {
+      kind: "natal",
+      whenUtc: "2000-01-01T00:00:00Z",
+      location: new GeoLocation({
+        latitude: Latitude.make(10),
+        longitude: Longitude.make(20),
+      }),
+      jwgea: new JwgeaAnalysis({
+        plutoPolarityPoint: 0,
+        northNodeSign: "Leo",
+        northNodeRuler: "sun",
+        southNodeSign: "Aquarius",
+        southNodeRuler: "uranus",
+        skippedSteps: [],
+      }),
       chart: {
         jdUt: 2451545,
         zodiac: "tropical",
@@ -63,11 +85,6 @@ describe("ChartEngine Service", () => {
         cusps: [],
         aspects: [],
       },
-      location: new GeoLocation({
-        latitude: Latitude.make(10),
-        longitude: Longitude.make(20),
-      }),
-      whenUtc: "2000-01-01T00:00:00Z",
     };
 
     const program = Effect.gen(function* () {
