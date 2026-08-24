@@ -1,13 +1,13 @@
 import { type AxiCliCommand, type AxiCliOptions, runAxiCli } from "axi-sdk-js";
-import { Effect } from "effect";
+import { Effect, Schema } from "effect";
 import { VERSION } from "../version.js";
-import { runEffectToAxi } from "./bridge.js";
+import { makeCommand } from "./command.js";
 
 /**
  * Smoke test / system status command.
  */
-export const pingCommand: AxiCliCommand<undefined> = async () => {
-  const program = Effect.gen(function* () {
+export const pingCommand: AxiCliCommand<undefined> = makeCommand(Schema.Struct({}), () =>
+  Effect.gen(function* () {
     yield* Effect.logDebug("executing ping smoke test");
     return {
       status: "ok",
@@ -16,10 +16,8 @@ export const pingCommand: AxiCliCommand<undefined> = async () => {
       engine: "caelus+effect",
       timestamp: new Date().toISOString(),
     };
-  });
-
-  return runEffectToAxi(program);
-};
+  }),
+);
 
 export const compassCliOptions: AxiCliOptions<undefined> = {
   description: "Deterministic Astrological Chart Engine & Profile Manager CLI",
