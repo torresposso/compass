@@ -104,7 +104,7 @@ export async function runEffectToAxi<A, E, R>(
         return value;
       }
       if (value && typeof value === "object") {
-        return value as Record<string, unknown>;
+        return JSON.parse(JSON.stringify(value)) as Record<string, unknown>;
       }
       return String(value);
     },

@@ -56,4 +56,53 @@ describe("CLI Entrypoint & Fast-Path", () => {
     expect(res.aspects).toBeDefined();
     expect(res.jwgea).toBeDefined();
   });
+
+  it("handles profile CRUD and chart natal via CLI commands", async () => {
+    const {
+      profileAddCommand,
+      profileListCommand,
+      profileGetCommand,
+      chartNatalCommand,
+      profileDeleteCommand,
+    } = await import("../src/cli/App.js");
+
+    // Add profile
+    const added = (await profileAddCommand(
+      [
+        "--slug",
+        "carl-jung",
+        "--name",
+        "Carl Gustav Jung",
+        "--whenUtc",
+        "1875-07-26T19:32:00Z",
+        "--latitude",
+        "47.5596",
+        "--longitude",
+        "7.5886",
+      ],
+      undefined,
+    )) as Record<string, unknown>;
+    expect(added.status).toBe("created");
+
+    // List profiles
+    const list = (await profileListCommand([], undefined)) as Record<string, unknown>;
+    expect(Number(list.count)).toBeGreaterThanOrEqual(1);
+
+    // Get profile
+    const fetched = (await profileGetCommand(["carl-jung"], undefined)) as Record<string, unknown>;
+    expect(fetched.name).toBe("Carl Gustav Jung");
+
+    // Chart natal for profile
+    const chart = (await chartNatalCommand(["carl-jung"], undefined)) as Record<string, unknown>;
+    expect(chart.profile).toBeDefined();
+    expect((chart.profile as Record<string, unknown>).slug).toBe("carl-jung");
+    expect(chart.jwgea).toBeDefined();
+
+    // Delete profile
+    const deleted = (await profileDeleteCommand(["carl-jung"], undefined)) as Record<
+      string,
+      unknown
+    >;
+    expect(deleted.status).toBe("deleted");
+  });
 });
