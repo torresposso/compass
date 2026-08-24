@@ -1,5 +1,5 @@
 import { AxiError } from "axi-sdk-js";
-import { Cause, Effect, Exit, type Layer } from "effect";
+import { Cause, Effect, Exit, type Layer, Schema } from "effect";
 import {
   DatabaseError,
   EphemerisError,
@@ -12,7 +12,7 @@ export type AxiStructuredOutput = Record<string, unknown>;
 export type AxiRenderable = string | AxiStructuredOutput;
 
 /**
- * Maps a typed DomainError (or unknown defect) from Effect to an AxiError with suggestions.
+ * Maps a typed DomainError, SchemaError, or unknown defect from Effect to an AxiError with suggestions.
  */
 export function mapErrorToAxi(error: unknown): AxiError {
   if (error instanceof ValidationError) {
@@ -21,6 +21,12 @@ export function mapErrorToAxi(error: unknown): AxiError {
         ? [...error.issues]
         : ["Check input parameters and format."];
     return new AxiError(error.message, "VALIDATION_ERROR", suggestions);
+  }
+
+  if (Schema.isSchemaError(error)) {
+    return new AxiError(error.message, "VALIDATION_ERROR", [
+      "Check input parameters against the required schema.",
+    ]);
   }
 
   if (error instanceof ProfileNotFoundError) {
@@ -62,6 +68,10 @@ export function mapErrorToAxi(error: unknown): AxiError {
  * Extracts failure value from Effect Cause and throws corresponding AxiError.
  */
 export function handleCauseToAxi(cause: Cause.Cause<unknown>): never {
+  if (Cause.hasInterruptsOnly(cause)) {
+    throw new AxiError("Operation was interrupted", "INTERRUPTED");
+  }
+
   for (const reason of cause.reasons) {
     if (Cause.isFailReason(reason)) {
       throw mapErrorToAxi(reason.error);

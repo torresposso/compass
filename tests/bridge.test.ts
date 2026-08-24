@@ -1,6 +1,6 @@
 import { describe, expect, it } from "bun:test";
 import { AxiError } from "axi-sdk-js";
-import { Effect, Layer } from "effect";
+import { Effect, Layer, Schema } from "effect";
 import { runEffectToAxi } from "../src/cli/bridge.js";
 import {
   DatabaseError,
@@ -8,6 +8,7 @@ import {
   ProfileNotFoundError,
   ValidationError,
 } from "../src/core/errors.js";
+import { Latitude } from "../src/core/schema.js";
 
 describe("runEffectToAxi Bridge", () => {
   it("unwraps successful effect returning primitive string", async () => {
@@ -40,6 +41,20 @@ describe("runEffectToAxi Bridge", () => {
       expect(axiErr.code).toBe("VALIDATION_ERROR");
       expect(axiErr.message).toBe("Invalid latitude");
       expect(axiErr.suggestions).toEqual(["Latitude must be between -90 and 90 degrees"]);
+    }
+  });
+
+  it("maps native Effect Schema.decodeUnknown errors to VALIDATION_ERROR", async () => {
+    const decodeLatitude = Schema.decodeUnknownEffect(Latitude);
+    const program = decodeLatitude(999); // 999 is out of [-90, 90]
+
+    try {
+      await runEffectToAxi(program);
+      expect().fail("Should have thrown AxiError");
+    } catch (err) {
+      expect(err).toBeInstanceOf(AxiError);
+      const axiErr = err as AxiError;
+      expect(axiErr.code).toBe("VALIDATION_ERROR");
     }
   });
 
@@ -105,5 +120,18 @@ describe("runEffectToAxi Bridge", () => {
 
     const result = await runEffectToAxi(program, Layer.empty);
     expect(result).toEqual({ success: true });
+  });
+
+  it("maps interrupted effect to INTERRUPTED error code", async () => {
+    const program = Effect.interrupt;
+
+    try {
+      await runEffectToAxi(program);
+      expect().fail("Should have thrown AxiError");
+    } catch (err) {
+      expect(err).toBeInstanceOf(AxiError);
+      const axiErr = err as AxiError;
+      expect(axiErr.code).toBe("INTERRUPTED");
+    }
   });
 });
