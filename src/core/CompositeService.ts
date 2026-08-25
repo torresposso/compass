@@ -4,16 +4,15 @@ import type { CompositeChart, NatalChart } from "./Charts.js";
 import { dateTimeToJulianDay, Ephemeris, type EphemerisError } from "./Ephemeris.js";
 import { computeJwgea, houseOfLongitude } from "./Jwgea.js";
 
-export interface CompositeServiceApi {
-  readonly composite: (
-    chartA: NatalChart,
-    chartB: NatalChart,
-  ) => Effect.Effect<CompositeChart, EphemerisError>;
-}
-
-export class CompositeService extends Context.Service<CompositeService, CompositeServiceApi>()(
-  "compass/core/CompositeService",
-) {
+export class CompositeService extends Context.Service<
+  CompositeService,
+  {
+    readonly composite: (
+      chartA: NatalChart,
+      chartB: NatalChart,
+    ) => Effect.Effect<CompositeChart, EphemerisError>;
+  }
+>()("compass/core/CompositeService") {
   static readonly layer = Layer.effect(
     CompositeService,
     Effect.gen(function* () {
@@ -39,23 +38,33 @@ export class CompositeService extends Context.Service<CompositeService, Composit
         const baseChart = yield* ephemeris.chartAt(midJd, midLat, midLon);
         const placements = yield* ephemeris.compositePlacements(jdA, jdB);
 
+        const updatedBodies = { ...baseChart.bodies };
+
         for (const p of placements) {
           const existing = baseChart.bodies[p.body as BodyId];
           if (existing) {
-            existing.lon = p.lon;
-            existing.sign = p.sign;
-            existing.signDeg = p.signDeg;
-            existing.house = houseOfLongitude(p.lon, baseChart.cusps);
+            updatedBodies[p.body as BodyId] = {
+              ...existing,
+              lon: p.lon,
+              sign: p.sign,
+              signDeg: p.signDeg,
+              house: houseOfLongitude(p.lon, baseChart.cusps),
+            };
           }
         }
 
-        const jwgea = yield* computeJwgea(baseChart);
+        const compositeChart = {
+          ...baseChart,
+          bodies: updatedBodies,
+        };
+
+        const jwgea = yield* computeJwgea(compositeChart);
 
         return {
           kind: "composite",
           chartAWhenUtc: chartA.whenUtc,
           chartBWhenUtc: chartB.whenUtc,
-          chart: baseChart,
+          chart: compositeChart,
           jwgea,
         } as const;
       });
@@ -65,20 +74,4 @@ export class CompositeService extends Context.Service<CompositeService, Composit
       });
     }),
   );
-
-  static readonly testLayer = (stubChart: NatalChart) =>
-    Layer.succeed(
-      CompositeService,
-      CompositeService.of({
-        composite: Effect.fn("CompositeService.compositeFake")((a, b) =>
-          Effect.succeed({
-            kind: "composite",
-            chartAWhenUtc: a.whenUtc,
-            chartBWhenUtc: b.whenUtc,
-            chart: stubChart.chart,
-            jwgea: stubChart.jwgea,
-          }),
-        ),
-      }),
-    );
 }

@@ -1,18 +1,18 @@
+import { progressedJd } from "caelus";
 import { Context, DateTime, Effect, Layer } from "effect";
 import type { NatalChart, ProgressedChart } from "./Charts.js";
-import { dateTimeToJulianDay, Ephemeris, type EphemerisError, progressedJd } from "./Ephemeris.js";
+import { dateTimeToJulianDay, Ephemeris, type EphemerisError } from "./Ephemeris.js";
 import { computeJwgea } from "./Jwgea.js";
 
-export interface ProgressedServiceApi {
-  readonly progressed: (
-    natal: NatalChart,
-    targetUtc: DateTime.Utc,
-  ) => Effect.Effect<ProgressedChart, EphemerisError>;
-}
-
-export class ProgressedService extends Context.Service<ProgressedService, ProgressedServiceApi>()(
-  "compass/core/ProgressedService",
-) {
+export class ProgressedService extends Context.Service<
+  ProgressedService,
+  {
+    readonly progressed: (
+      natal: NatalChart,
+      targetUtc: DateTime.Utc,
+    ) => Effect.Effect<ProgressedChart, EphemerisError>;
+  }
+>()("compass/core/ProgressedService") {
   static readonly layer = Layer.effect(
     ProgressedService,
     Effect.gen(function* () {
@@ -53,21 +53,4 @@ export class ProgressedService extends Context.Service<ProgressedService, Progre
       });
     }),
   );
-
-  static readonly testLayer = (stubChart: NatalChart) =>
-    Layer.succeed(
-      ProgressedService,
-      ProgressedService.of({
-        progressed: Effect.fn("ProgressedService.progressedFake")((_, targetUtc) =>
-          Effect.succeed({
-            kind: "progressed",
-            rootNatalWhenUtc: stubChart.whenUtc,
-            targetUtc,
-            location: stubChart.location,
-            chart: stubChart.chart,
-            jwgea: stubChart.jwgea,
-          }),
-        ),
-      }),
-    );
 }

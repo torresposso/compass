@@ -3,18 +3,21 @@ import { Context, DateTime, Effect, Layer } from "effect";
 import type { CelestialBody } from "./Astronomy.js";
 import type { NatalChart, TransitChart } from "./Charts.js";
 import { dateTimeToJulianDay, Ephemeris, type EphemerisError } from "./Ephemeris.js";
-import { angularSeparation, JwgeaEvolutionaryActivation } from "./Jwgea.js";
+import {
+  type AstrologicalAspect,
+  angularSeparation,
+  JwgeaEvolutionaryActivation,
+} from "./Jwgea.js";
 
-export interface TransitsServiceApi {
-  readonly transits: (
-    natal: NatalChart,
-    transitUtc: DateTime.Utc,
-  ) => Effect.Effect<TransitChart, EphemerisError>;
-}
-
-export class TransitsService extends Context.Service<TransitsService, TransitsServiceApi>()(
-  "compass/core/TransitsService",
-) {
+export class TransitsService extends Context.Service<
+  TransitsService,
+  {
+    readonly transits: (
+      natal: NatalChart,
+      transitUtc: DateTime.Utc,
+    ) => Effect.Effect<TransitChart, EphemerisError>;
+  }
+>()("compass/core/TransitsService") {
   static readonly layer = Layer.effect(
     TransitsService,
     Effect.gen(function* () {
@@ -30,10 +33,7 @@ export class TransitsService extends Context.Service<TransitsService, TransitsSe
         });
 
         const transitJd = dateTimeToJulianDay(transitUtc);
-        const hits = yield* ephemeris.transitAspects(natal.chart, transitJd, {
-          maxOrb: 6,
-          zodiac: "tropical",
-        });
+        const hits = yield* ephemeris.transitAspects(natal.chart, transitJd);
 
         const jwgeaActivations: JwgeaEvolutionaryActivation[] = [];
         const pppLon = natal.jwgea.plutoPolarityPoint.longitude;
@@ -45,16 +45,16 @@ export class TransitsService extends Context.Service<TransitsService, TransitsSe
               new JwgeaEvolutionaryActivation({
                 transitBody: hit.transit as CelestialBody,
                 target: "pluto",
-                aspect: hit.aspect,
+                aspect: hit.aspect as AstrologicalAspect,
                 orb: hit.orb,
               }),
             );
-          } else if (hit.natal === "true_node" || hit.natal === "north_node") {
+          } else if (hit.natal === "true_node") {
             jwgeaActivations.push(
               new JwgeaEvolutionaryActivation({
                 transitBody: hit.transit as CelestialBody,
                 target: "north_node",
-                aspect: hit.aspect,
+                aspect: hit.aspect as AstrologicalAspect,
                 orb: hit.orb,
               }),
             );
@@ -63,7 +63,7 @@ export class TransitsService extends Context.Service<TransitsService, TransitsSe
               new JwgeaEvolutionaryActivation({
                 transitBody: hit.transit as CelestialBody,
                 target: "skipped_step",
-                aspect: hit.aspect,
+                aspect: hit.aspect as AstrologicalAspect,
                 orb: hit.orb,
               }),
             );
@@ -73,9 +73,9 @@ export class TransitsService extends Context.Service<TransitsService, TransitsSe
         // Also check transits directly to PPP (which is not a default Caelus aspectable body)
         for (const [id, body] of Object.entries(natal.chart.bodies)) {
           if (!body) continue;
-          const transitBodyPos = yield* ephemeris.position(id as BodyId, transitJd);
+          const transitBodyLon = yield* ephemeris.longitude(id as BodyId, transitJd);
 
-          const sep = angularSeparation(transitBodyPos.lon, pppLon);
+          const sep = angularSeparation(transitBodyLon, pppLon);
           if (sep <= 3) {
             jwgeaActivations.push(
               new JwgeaEvolutionaryActivation({
@@ -111,20 +111,4 @@ export class TransitsService extends Context.Service<TransitsService, TransitsSe
       });
     }),
   );
-
-  static readonly testLayer = (stubChart: NatalChart) =>
-    Layer.succeed(
-      TransitsService,
-      TransitsService.of({
-        transits: Effect.fn("TransitsService.transitsFake")((_, transitUtc) =>
-          Effect.succeed({
-            kind: "transits",
-            natalWhenUtc: stubChart.whenUtc,
-            transitUtc,
-            hits: [],
-            jwgeaActivations: [],
-          }),
-        ),
-      }),
-    );
 }

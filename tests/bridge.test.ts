@@ -4,7 +4,6 @@ import { Effect, Layer, Schema } from "effect";
 import { runEffectToAxi } from "../src/cli/Bridge.js";
 import { Latitude } from "../src/core/Astronomy.js";
 import { EphemerisError } from "../src/core/Ephemeris.js";
-import { ValidationError } from "../src/core/Errors.js";
 import { DatabaseError, ProfileNotFoundError } from "../src/core/ProfileStore.js";
 
 describe("runEffectToAxi Bridge", () => {
@@ -18,27 +17,6 @@ describe("runEffectToAxi Bridge", () => {
     const program = Effect.succeed({ status: "ok", count: 42 });
     const result = await runEffectToAxi(program);
     expect(result).toEqual({ status: "ok", count: 42 });
-  });
-
-  it("maps ValidationError to AxiError with suggestions", async () => {
-    const program = Effect.fail(
-      new ValidationError({
-        message: "Invalid latitude",
-        field: "lat",
-        issues: ["Latitude must be between -90 and 90 degrees"],
-      }),
-    );
-
-    try {
-      await runEffectToAxi(program);
-      expect().fail("Should have thrown AxiError");
-    } catch (err) {
-      expect(err).toBeInstanceOf(AxiError);
-      const axiErr = err as AxiError;
-      expect(axiErr.code).toBe("VALIDATION_ERROR");
-      expect(axiErr.message).toBe("Invalid latitude");
-      expect(axiErr.suggestions).toEqual(["Latitude must be between -90 and 90 degrees"]);
-    }
   });
 
   it("maps native Effect Schema.decodeUnknown errors to VALIDATION_ERROR", async () => {

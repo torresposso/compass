@@ -1,12 +1,11 @@
 import { AxiError } from "axi-sdk-js";
 import { Cause, Effect, Exit, type Layer, Predicate, Schema } from "effect";
-import type { ValidationError } from "../core/Errors.js";
 
 export type AxiStructuredOutput = Record<string, unknown>;
 export type AxiRenderable = string | AxiStructuredOutput;
 
 /**
- * Maps a typed DomainError, SchemaError, or unknown defect from Effect to an AxiError with suggestions.
+ * Maps a typed domain error, SchemaError, or unknown defect from Effect to an AxiError with suggestions.
  */
 export function mapErrorToAxi(error: unknown): AxiError {
   if (Schema.isSchemaError(error)) {
@@ -18,21 +17,13 @@ export function mapErrorToAxi(error: unknown): AxiError {
   if (typeof error === "object" && error !== null && "_tag" in error) {
     const tagged = error as { _tag: string; message: string; [key: string]: unknown };
     switch (tagged._tag) {
-      case "ValidationError": {
-        const err = error as ValidationError;
-        const suggestions: string[] =
-          err.issues && err.issues.length > 0
-            ? [...err.issues]
-            : ["Check input parameters and format."];
-        return new AxiError(err.message, "VALIDATION_ERROR", suggestions);
-      }
       case "ProfileNotFoundError":
         return new AxiError(tagged.message, "NOT_FOUND", [
           "Run 'compass profile list' to see all available profiles.",
         ]);
       case "ProfileAlreadyExistsError":
         return new AxiError(tagged.message, "ALREADY_EXISTS", [
-          "Specify a different profile name or update the existing profile.",
+          "Specify a different profile slug or delete the existing profile.",
         ]);
       case "EphemerisError":
         return new AxiError(tagged.message, "ENGINE_ERROR", [

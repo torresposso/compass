@@ -312,6 +312,9 @@ describe("Chart Services (JWGEA Canonical)", () => {
     expect(houseOfLongitude(5, cusps)).toBe(12);
     // 20° is in house 1
     expect(houseOfLongitude(20, cusps)).toBe(1);
+
+    // Throws on incomplete cusps
+    expect(() => houseOfLongitude(20, [15, 45])).toThrow("Invalid cusps");
   });
 
   it("calculates synastry comparison between Chart A and Chart B", async () => {

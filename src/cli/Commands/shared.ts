@@ -1,6 +1,15 @@
 import { Effect, Schema } from "effect";
 import { ProfileSlug } from "../../core/ProfileStore.js";
 
+/**
+ * Standard input schema for commands targeting a profile by positional argument or flag.
+ */
+export const ProfileSlugInput = Schema.Struct({
+  slug: Schema.optional(Schema.String),
+  _: Schema.optional(Schema.Array(Schema.String)),
+});
+export type ProfileSlugInputType = typeof ProfileSlugInput.Type;
+
 export function resolveSlug(input: {
   slug?: string;
   _?: readonly string[];

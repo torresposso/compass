@@ -6,7 +6,7 @@ import { EphemerisError } from "./Ephemeris.js";
 /** Orb (degrees) within which a body counts as squaring the nodal axis. */
 export const SQUARE_ORB = 6;
 
-export const NODE_BODY_IDS = new Set(["true_node", "mean_node", "north_node", "south_node"]);
+export const NODE_BODY_IDS = new Set(["true_node", "mean_node"]);
 
 /**
  * Modern domicile rulership of each zodiac sign, Aries..Pisces.
@@ -15,7 +15,7 @@ export const NODE_BODY_IDS = new Set(["true_node", "mean_node", "north_node", "s
  * outer planets to their modern signs: Scorpio -> Pluto, Aquarius -> Uranus,
  * Pisces -> Neptune. Used by JWGEA to resolve the nodal rulers.
  */
-export const MODERN_SIGN_RULERS: Readonly<Record<ZodiacSign, CelestialBody>> = {
+export const MODERN_SIGN_RULERS = {
   Aries: "mars",
   Taurus: "venus",
   Gemini: "mercury",
@@ -28,10 +28,10 @@ export const MODERN_SIGN_RULERS: Readonly<Record<ZodiacSign, CelestialBody>> = {
   Capricorn: "saturn",
   Aquarius: "uranus",
   Pisces: "neptune",
-};
+} as const satisfies Record<ZodiacSign, CelestialBody>;
 
 /**
- * Sign name containing the given ecliptic longitude (degrees, [0, 360)).
+ * Identify the ZodiacSign containing a given ecliptic longitude [0, 360).
  */
 export function signOfLongitude(longitude: number): ZodiacSign {
   const signs = [
@@ -50,7 +50,7 @@ export function signOfLongitude(longitude: number): ZodiacSign {
   ] as const;
   const normalized = ((longitude % 360) + 360) % 360;
   const index = Math.min(signs.length - 1, Math.floor(normalized / 30));
-  return signs[index] as ZodiacSign;
+  return signs[index] ?? "Aries";
 }
 
 /**
@@ -58,15 +58,17 @@ export function signOfLongitude(longitude: number): ZodiacSign {
  */
 export function modernRulerOfLongitude(longitude: number): CelestialBody {
   const sign = signOfLongitude(longitude);
-  return MODERN_SIGN_RULERS[sign] ?? "mars";
+  return MODERN_SIGN_RULERS[sign];
 }
 
 /**
  * Safe lookup of modern ruler for a sign.
  */
 export function getModernSignRuler(sign: string): Option.Option<CelestialBody> {
-  const ruler = MODERN_SIGN_RULERS[sign as ZodiacSign];
-  return ruler ? Option.some(ruler) : Option.none();
+  if (sign in MODERN_SIGN_RULERS) {
+    return Option.some(MODERN_SIGN_RULERS[sign as ZodiacSign]);
+  }
+  return Option.none();
 }
 
 /**
@@ -78,11 +80,26 @@ export function angularSeparation(a: number, b: number): number {
 }
 
 /**
+ * Standard major Ptolemaic aspect names used in evolutionary astrology.
+ */
+export const AstrologicalAspect = Schema.Literals([
+  "conjunction",
+  "sextile",
+  "square",
+  "trine",
+  "opposition",
+] as const);
+export type AstrologicalAspect = typeof AstrologicalAspect.Type;
+
+/**
  * Determines which house (1..12) contains a given ecliptic longitude using chart cusps.
+ * Fails if cusps are missing or incomplete (< 12).
  */
 export function houseOfLongitude(longitude: number, cusps: readonly number[]): number {
+  if (!cusps || cusps.length < 12) {
+    throw new Error("Invalid cusps: expected 12 house cusps");
+  }
   const normLon = ((longitude % 360) + 360) % 360;
-  if (!cusps || cusps.length < 12) return 1;
 
   for (let i = 0; i < 12; i++) {
     const rawCurrent = cusps[i];
@@ -155,8 +172,8 @@ export class JwgeaEvolutionaryActivation extends Schema.Class<JwgeaEvolutionaryA
   "compass/core/JwgeaEvolutionaryActivation",
 )({
   transitBody: CelestialBody,
-  target: Schema.Literals(["pluto", "ppp", "north_node", "south_node", "skipped_step"] as const),
-  aspect: Schema.String,
+  target: Schema.Literals(["pluto", "ppp", "north_node", "skipped_step"] as const),
+  aspect: AstrologicalAspect,
   orb: Schema.Number,
 }) {}
 
@@ -167,8 +184,8 @@ export class JwgeaCrossContact extends Schema.Class<JwgeaCrossContact>(
   "compass/core/JwgeaCrossContact",
 )({
   sourceBody: CelestialBody,
-  targetPoint: Schema.String,
-  aspect: Schema.String,
+  targetPoint: Schema.Literals(["pluto", "true_node"] as const),
+  aspect: AstrologicalAspect,
   orb: Schema.Number,
 }) {}
 
@@ -178,6 +195,12 @@ export class JwgeaCrossContact extends Schema.Class<JwgeaCrossContact>(
 export const computeJwgea = Effect.fn("Jwgea.computeJwgea")(function* (
   chart: Chart,
 ): Effect.fn.Return<JwgeaAnalysis, EphemerisError> {
+  if (!chart.cusps || chart.cusps.length < 12) {
+    return yield* new EphemerisError({
+      message: "JWGEA requires 12 valid house cusps, but received incomplete cusps.",
+    });
+  }
+
   const pluto = chart.bodies.pluto;
   const trueNode = chart.bodies.true_node;
 
@@ -209,13 +232,15 @@ export const computeJwgea = Effect.fn("Jwgea.computeJwgea")(function* (
   // 2. North Node & Ruler
   const northNodeSign = trueNode.sign as ZodiacSign;
   const northNodeHouse = trueNode.house ?? houseOfLongitude(trueNode.lon, chart.cusps);
-  const northNodeRulerOpt = getModernSignRuler(northNodeSign);
-  if (northNodeRulerOpt._tag === "None") {
-    return yield* new EphemerisError({
-      message: `No modern ruler defined for sign "${northNodeSign}"`,
-    });
-  }
-  const northNodeRuler = northNodeRulerOpt.value;
+  const northNodeRuler = yield* Option.match(getModernSignRuler(northNodeSign), {
+    onNone: () =>
+      Effect.fail(
+        new EphemerisError({
+          message: `No modern ruler defined for sign "${northNodeSign}"`,
+        }),
+      ),
+    onSome: (ruler) => Effect.succeed(ruler),
+  });
   const northRulerBody = chart.bodies[northNodeRuler as BodyId];
   const northNodeRulerSign =
     (northRulerBody?.sign as ZodiacSign) ?? signOfLongitude(northRulerBody?.lon ?? 0);

@@ -17,13 +17,12 @@ export class CalculateChartInput extends Schema.Class<CalculateChartInput>(
 }) {}
 export type CalculateChartInputType = typeof CalculateChartInput.Type;
 
-export interface NatalServiceApi {
-  readonly natal: (input: CalculateChartInputType) => Effect.Effect<NatalChart, EphemerisError>;
-}
-
-export class NatalService extends Context.Service<NatalService, NatalServiceApi>()(
-  "compass/core/NatalService",
-) {
+export class NatalService extends Context.Service<
+  NatalService,
+  {
+    readonly natal: (input: CalculateChartInputType) => Effect.Effect<NatalChart, EphemerisError>;
+  }
+>()("compass/core/NatalService") {
   static readonly layer = Layer.effect(
     NatalService,
     Effect.gen(function* () {

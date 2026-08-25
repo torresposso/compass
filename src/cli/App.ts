@@ -65,9 +65,7 @@ export const CompassLive = Layer.provide(
   Ephemeris.layer,
 );
 
-const NatalLive = Layer.provide(NatalService.layer, Ephemeris.layer);
-
-export const chartCalculateCommand = makeChartCalculateCommand(NatalLive);
+export const chartCalculateCommand = makeChartCalculateCommand(CompassLive);
 export const chartNatalCommand = makeChartNatalCommand(CompassLive);
 export const chartProgressedCommand = makeChartProgressedCommand(CompassLive);
 export const chartTransitsCommand = makeChartTransitsCommand(CompassLive);

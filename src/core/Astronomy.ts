@@ -1,49 +1,45 @@
-import {
-  type Aspect,
-  BODIES,
-  type Body,
-  type BodyId,
-  type HouseSystem as CaelusHouseSystem,
-  type Chart,
-  type ChartBodies,
-  type ChartBody,
-  EXTRA_BODIES,
-  HOUSE_SYSTEMS,
-  normalizeHouseSystem,
-  type Position,
-  SIGNS,
-  type SynastryAspectHit,
-  type SynastryOverlays,
-  type TransitHit,
-} from "caelus";
+import { BODIES, EXTRA_BODIES } from "caelus";
 import { Schema } from "effect";
 
-// Re-export Caelus native types and constants
+// Direct re-exports of Caelus native types and constants
 export type {
   Aspect,
   Body,
   BodyId,
-  CaelusHouseSystem,
   Chart,
   ChartBodies,
   ChartBody,
+  HouseSystem as CaelusHouseSystem,
   Position,
   SynastryAspectHit,
   SynastryOverlays,
   TransitHit,
-};
-export { BODIES, EXTRA_BODIES, HOUSE_SYSTEMS, normalizeHouseSystem, SIGNS };
+} from "caelus";
+export const ZODIAC_SIGNS = [
+  "Aries",
+  "Taurus",
+  "Gemini",
+  "Cancer",
+  "Leo",
+  "Virgo",
+  "Libra",
+  "Scorpio",
+  "Sagittarius",
+  "Capricorn",
+  "Aquarius",
+  "Pisces",
+] as const;
 
 /**
  * Validated Zodiac Signs.
  */
-export const ZodiacSign = Schema.Literals(SIGNS as unknown as readonly [string, ...string[]]);
+export const ZodiacSign = Schema.Literals(ZODIAC_SIGNS);
 export type ZodiacSign = typeof ZodiacSign.Type;
 
 /**
  * Validated Celestial Body IDs.
  */
-export const CelestialBody = Schema.Literals([...BODIES, ...EXTRA_BODIES, "south_node"] as const);
+export const CelestialBody = Schema.Literals([...BODIES, ...EXTRA_BODIES] as const);
 export type CelestialBody = typeof CelestialBody.Type;
 
 /**

@@ -1,12 +1,14 @@
+import type { Chart } from "caelus";
 import { DateTime, Effect, type Layer, Schema } from "effect";
 import { CompositeService } from "../../core/CompositeService.js";
+import type { JwgeaAnalysis } from "../../core/Jwgea.js";
 import { CalculateChartInput, NatalService } from "../../core/NatalService.js";
 import { ProfileSlug, ProfileStore } from "../../core/ProfileStore.js";
 import { ProgressedService } from "../../core/ProgressedService.js";
 import { SynastryService } from "../../core/SynastryService.js";
 import { TransitsService } from "../../core/TransitsService.js";
 import { makeCommand } from "../Command.js";
-import { resolveSlug, resolveTwoSlugs } from "./shared.js";
+import { ProfileSlugInput, resolveSlug, resolveTwoSlugs } from "./shared.js";
 
 export const ChartProgressedInput = Schema.Struct({
   slug: Schema.optional(ProfileSlug),
@@ -26,10 +28,39 @@ export const ChartRelationalInput = Schema.Struct({
   _: Schema.optional(Schema.Array(Schema.String)),
 });
 
-export const ProfileSlugInput = Schema.Struct({
-  slug: Schema.optional(ProfileSlug),
-  _: Schema.optional(Schema.Array(Schema.String)),
+export { ProfileSlugInput };
+
+/**
+ * Helper to fetch a profile and calculate its root natal chart in a single effect.
+ */
+export const natalFromProfile = Effect.fn("natalFromProfile")(function* (slug: ProfileSlug) {
+  const store = yield* ProfileStore;
+  const natalService = yield* NatalService;
+  const profile = yield* store.get(slug);
+
+  const chartInput = new CalculateChartInput({
+    whenUtc: profile.whenUtc,
+    latitude: profile.location.latitude,
+    longitude: profile.location.longitude,
+  });
+
+  const natal = yield* natalService.natal(chartInput);
+  return { profile, natal };
 });
+
+/**
+ * Helper to format standard chart angles, cusps, bodies, aspects, and JWGEA analysis.
+ */
+export function renderChartView(result: { readonly chart: Chart; readonly jwgea: JwgeaAnalysis }) {
+  return {
+    ascendant: result.chart.angles.asc,
+    mc: result.chart.angles.mc,
+    houses: result.chart.cusps,
+    bodies: result.chart.bodies,
+    aspects: result.chart.aspects,
+    jwgea: result.jwgea,
+  };
+}
 
 /**
  * Chart calculate handler defined with Effect.fn consuming NatalService.
@@ -46,12 +77,7 @@ export const handleChartCalculate = Effect.fn("handleChartCalculate")(function* 
       latitude: result.location.latitude,
       longitude: result.location.longitude,
     },
-    ascendant: result.chart.angles.asc,
-    mc: result.chart.angles.mc,
-    houses: result.chart.cusps,
-    bodies: result.chart.bodies,
-    aspects: result.chart.aspects,
-    jwgea: result.jwgea,
+    ...renderChartView(result),
   };
 });
 
@@ -59,35 +85,20 @@ export const handleChartNatal = Effect.fn("handleChartNatal")(function* (
   input: typeof ProfileSlugInput.Type,
 ) {
   const slug = yield* resolveSlug(input);
-  const store = yield* ProfileStore;
-  const natalService = yield* NatalService;
-  const profile = yield* store.get(slug);
-
-  const chartInput = new CalculateChartInput({
-    whenUtc: profile.whenUtc,
-    latitude: profile.location.latitude,
-    longitude: profile.location.longitude,
-  });
-
-  const result = yield* natalService.natal(chartInput);
+  const { profile, natal } = yield* natalFromProfile(slug);
 
   return {
     profile: {
       slug: profile.slug,
       name: profile.name,
     },
-    kind: result.kind,
-    whenUtc: DateTime.formatIso(result.whenUtc),
+    kind: natal.kind,
+    whenUtc: DateTime.formatIso(natal.whenUtc),
     location: {
-      latitude: result.location.latitude,
-      longitude: result.location.longitude,
+      latitude: natal.location.latitude,
+      longitude: natal.location.longitude,
     },
-    ascendant: result.chart.angles.asc,
-    mc: result.chart.angles.mc,
-    houses: result.chart.cusps,
-    bodies: result.chart.bodies,
-    aspects: result.chart.aspects,
-    jwgea: result.jwgea,
+    ...renderChartView(natal),
   };
 });
 
@@ -95,18 +106,8 @@ export const handleChartProgressed = Effect.fn("handleChartProgressed")(function
   input: typeof ChartProgressedInput.Type,
 ) {
   const slug = yield* resolveSlug(input);
-  const store = yield* ProfileStore;
-  const natalService = yield* NatalService;
   const progressedService = yield* ProgressedService;
-  const profile = yield* store.get(slug);
-
-  const natal = yield* natalService.natal(
-    new CalculateChartInput({
-      whenUtc: profile.whenUtc,
-      latitude: profile.location.latitude,
-      longitude: profile.location.longitude,
-    }),
-  );
+  const { profile, natal } = yield* natalFromProfile(slug);
 
   const progressed = yield* progressedService.progressed(natal, input.targetUtc);
 
@@ -122,12 +123,7 @@ export const handleChartProgressed = Effect.fn("handleChartProgressed")(function
       latitude: progressed.location.latitude,
       longitude: progressed.location.longitude,
     },
-    ascendant: progressed.chart.angles.asc,
-    mc: progressed.chart.angles.mc,
-    houses: progressed.chart.cusps,
-    bodies: progressed.chart.bodies,
-    aspects: progressed.chart.aspects,
-    jwgea: progressed.jwgea,
+    ...renderChartView(progressed),
   };
 });
 
@@ -135,18 +131,8 @@ export const handleChartTransits = Effect.fn("handleChartTransits")(function* (
   input: typeof ChartTransitsInput.Type,
 ) {
   const slug = yield* resolveSlug(input);
-  const store = yield* ProfileStore;
-  const natalService = yield* NatalService;
   const transitsService = yield* TransitsService;
-  const profile = yield* store.get(slug);
-
-  const natal = yield* natalService.natal(
-    new CalculateChartInput({
-      whenUtc: profile.whenUtc,
-      latitude: profile.location.latitude,
-      longitude: profile.location.longitude,
-    }),
-  );
+  const { profile, natal } = yield* natalFromProfile(slug);
 
   const transits = yield* transitsService.transits(natal, input.transitUtc);
 
@@ -167,28 +153,10 @@ export const handleChartSynastry = Effect.fn("handleChartSynastry")(function* (
   input: typeof ChartRelationalInput.Type,
 ) {
   const [slugA, slugB] = yield* resolveTwoSlugs(input);
-  const store = yield* ProfileStore;
-  const natalService = yield* NatalService;
   const synastryService = yield* SynastryService;
 
-  const [profileA, profileB] = yield* Effect.all([store.get(slugA), store.get(slugB)]);
-
-  const [natalA, natalB] = yield* Effect.all([
-    natalService.natal(
-      new CalculateChartInput({
-        whenUtc: profileA.whenUtc,
-        latitude: profileA.location.latitude,
-        longitude: profileA.location.longitude,
-      }),
-    ),
-    natalService.natal(
-      new CalculateChartInput({
-        whenUtc: profileB.whenUtc,
-        latitude: profileB.location.latitude,
-        longitude: profileB.location.longitude,
-      }),
-    ),
-  ]);
+  const [{ profile: profileA, natal: natalA }, { profile: profileB, natal: natalB }] =
+    yield* Effect.all([natalFromProfile(slugA), natalFromProfile(slugB)]);
 
   const synastry = yield* synastryService.synastry(natalA, natalB);
 
@@ -206,28 +174,10 @@ export const handleChartComposite = Effect.fn("handleChartComposite")(function* 
   input: typeof ChartRelationalInput.Type,
 ) {
   const [slugA, slugB] = yield* resolveTwoSlugs(input);
-  const store = yield* ProfileStore;
-  const natalService = yield* NatalService;
   const compositeService = yield* CompositeService;
 
-  const [profileA, profileB] = yield* Effect.all([store.get(slugA), store.get(slugB)]);
-
-  const [natalA, natalB] = yield* Effect.all([
-    natalService.natal(
-      new CalculateChartInput({
-        whenUtc: profileA.whenUtc,
-        latitude: profileA.location.latitude,
-        longitude: profileA.location.longitude,
-      }),
-    ),
-    natalService.natal(
-      new CalculateChartInput({
-        whenUtc: profileB.whenUtc,
-        latitude: profileB.location.latitude,
-        longitude: profileB.location.longitude,
-      }),
-    ),
-  ]);
+  const [{ profile: profileA, natal: natalA }, { profile: profileB, natal: natalB }] =
+    yield* Effect.all([natalFromProfile(slugA), natalFromProfile(slugB)]);
 
   const composite = yield* compositeService.composite(natalA, natalB);
 
@@ -237,12 +187,7 @@ export const handleChartComposite = Effect.fn("handleChartComposite")(function* 
     kind: composite.kind,
     chartAWhenUtc: DateTime.formatIso(composite.chartAWhenUtc),
     chartBWhenUtc: DateTime.formatIso(composite.chartBWhenUtc),
-    ascendant: composite.chart.angles.asc,
-    mc: composite.chart.angles.mc,
-    houses: composite.chart.cusps,
-    bodies: composite.chart.bodies,
-    aspects: composite.chart.aspects,
-    jwgea: composite.jwgea,
+    ...renderChartView(composite),
   };
 });
 

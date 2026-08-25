@@ -2,7 +2,7 @@ import { DateTime, Effect, type Layer, Schema } from "effect";
 import { GeoLocation, Latitude, Longitude } from "../../core/Astronomy.js";
 import { Profile, ProfileSlug, ProfileStore } from "../../core/ProfileStore.js";
 import { makeCommand } from "../Command.js";
-import { resolveSlug } from "./shared.js";
+import { ProfileSlugInput, resolveSlug } from "./shared.js";
 
 // Schemas for Profile CLI operations
 export const ProfileAddInput = Schema.Struct({
@@ -13,10 +13,7 @@ export const ProfileAddInput = Schema.Struct({
   longitude: Longitude,
 });
 
-export const ProfileSlugInput = Schema.Struct({
-  slug: Schema.optional(ProfileSlug),
-  _: Schema.optional(Schema.Array(Schema.String)),
-});
+export { ProfileSlugInput };
 
 export const handleProfileAdd = Effect.fn("handleProfileAdd")(function* (
   input: typeof ProfileAddInput.Type,
