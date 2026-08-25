@@ -1,16 +1,35 @@
-import { type BodyId, type Chart, Engine, normalizeHouseSystem, SIGNS } from "caelus";
+import {
+  type BodyId,
+  type Chart,
+  compositePlacements,
+  Engine,
+  julianDay,
+  normalizeHouseSystem,
+  type Position,
+  progressedJd,
+  SIGNS,
+  synastryAspects,
+  synastryOverlays,
+  transitAspects,
+} from "caelus";
 import { embeddedData } from "caelus/data-embedded";
-import { Context, DateTime, Effect, Layer, Option } from "effect";
+import { Context, DateTime, Effect, Layer, Option, Predicate } from "effect";
 import { EphemerisError } from "./Errors.js";
 import {
   type CalculateChartInputType,
   type CelestialBody,
+  type CompositeChart,
   GeoLocation,
   JwgeaAnalysis,
+  JwgeaCrossContact,
+  JwgeaEvolutionaryActivation,
   JwgeaNodalPoint,
   JwgeaPoint,
   JwgeaSkippedStep,
   type NatalChart,
+  type ProgressedChart,
+  type SynastryChart,
+  type TransitChart,
   type ZodiacSign,
 } from "./Schema.js";
 
@@ -43,6 +62,14 @@ export const MODERN_SIGN_RULERS: Readonly<Record<ZodiacSign, CelestialBody>> = {
   Aquarius: "uranus",
   Pisces: "neptune",
 };
+
+/**
+ * Convert DateTime.Utc to Julian Day (UT).
+ */
+function dateTimeToJulianDay(dt: DateTime.Utc): number {
+  const parts = DateTime.toPartsUtc(dt);
+  return julianDay(parts.year, parts.month, parts.day, parts.hour, parts.minute, parts.second);
+}
 
 /**
  * Sign name containing the given ecliptic longitude (degrees, [0, 360)).
@@ -80,7 +107,7 @@ function angularSeparation(a: number, b: number): number {
 /**
  * Determines which house (1..12) contains a given ecliptic longitude using chart cusps.
  */
-function houseOfLongitude(longitude: number, cusps: readonly number[]): number {
+export function houseOfLongitude(longitude: number, cusps: readonly number[]): number {
   const normLon = ((longitude % 360) + 360) % 360;
   if (!cusps || cusps.length < 12) return 1;
 
@@ -206,8 +233,6 @@ const computeJwgea = Effect.fn("ChartEngine.computeJwgea")(function* (
     const distFromSquare = Math.min(Math.abs(sepTrue - 90), Math.abs(sepSouth - 90));
 
     if (distFromSquare <= SQUARE_ORB && !skippedSteps.some((s) => s.body === id)) {
-      // In JWGEA, calculate zodiacal distance from South Node to planet:
-      // If ((body.lon - southNodeLongitude + 360) % 360) < 180, it moved past the South Node towards North Node.
       const distFromSouthZodiacal = (body.lon - southNodeLongitude + 360) % 360;
       const resolvedVia: "north_node" | "south_node" =
         distFromSouthZodiacal < 180 ? "north_node" : "south_node";
@@ -251,11 +276,15 @@ const calculateNatalPipeline = Effect.fn("ChartEngine.calculateNatalPipeline")(f
       parts.second,
       input.latitude,
       input.longitude,
-      { houseSystem: normalizeHouseSystem(JWGEA_HOUSE_SYSTEM), zodiac: "tropical" },
+      {
+        houseSystem: normalizeHouseSystem(JWGEA_HOUSE_SYSTEM),
+        zodiac: "tropical",
+        bodies: ["true_lilith"],
+      },
     );
   } catch (err) {
     return yield* new EphemerisError({
-      message: err instanceof Error ? err.message : String(err),
+      message: Predicate.isError(err) ? err.message : String(err),
       date: DateTime.formatIso(input.whenUtc),
     });
   }
@@ -277,6 +306,260 @@ const calculateNatalPipeline = Effect.fn("ChartEngine.calculateNatalPipeline")(f
 });
 
 /**
+ * Calculate secondary progressed chart (day-for-a-year) using Caelus progressedJd.
+ */
+const calculateProgressedPipeline = Effect.fn("ChartEngine.calculateProgressedPipeline")(function* (
+  natal: NatalChart,
+  targetUtc: DateTime.Utc,
+  engine: Engine,
+): Effect.fn.Return<ProgressedChart, EphemerisError> {
+  const natalJd = dateTimeToJulianDay(natal.whenUtc);
+  const targetJd = dateTimeToJulianDay(targetUtc);
+  const progJd = progressedJd(natalJd, targetJd);
+
+  let progChart: Chart;
+  try {
+    progChart = engine.chartAt(progJd, natal.location.latitude, natal.location.longitude, {
+      houseSystem: normalizeHouseSystem(JWGEA_HOUSE_SYSTEM),
+      zodiac: "tropical",
+      bodies: ["true_lilith"],
+    });
+  } catch (err) {
+    return yield* new EphemerisError({
+      message: Predicate.isError(err) ? err.message : String(err),
+      date: DateTime.formatIso(targetUtc),
+    });
+  }
+
+  const jwgea = yield* computeJwgea(progChart);
+
+  return {
+    kind: "progressed",
+    rootNatalWhenUtc: natal.whenUtc,
+    targetUtc,
+    location: natal.location,
+    chart: progChart,
+    jwgea,
+  };
+});
+
+/**
+ * Calculate transits against a natal chart, deriving planetary aspects and JWGEA activations.
+ */
+const calculateTransitsPipeline = Effect.fn("ChartEngine.calculateTransitsPipeline")(function* (
+  natal: NatalChart,
+  transitUtc: DateTime.Utc,
+  engine: Engine,
+): Effect.fn.Return<TransitChart, EphemerisError> {
+  const transitJd = dateTimeToJulianDay(transitUtc);
+
+  let hits: ReturnType<typeof transitAspects>;
+  try {
+    hits = transitAspects(natal.chart, engine, transitJd, {
+      maxOrb: 6,
+      zodiac: "tropical",
+    });
+  } catch (err) {
+    return yield* new EphemerisError({
+      message: Predicate.isError(err) ? err.message : String(err),
+      date: DateTime.formatIso(transitUtc),
+    });
+  }
+
+  const jwgeaActivations: JwgeaEvolutionaryActivation[] = [];
+  const pppLon = natal.jwgea.plutoPolarityPoint.longitude;
+
+  // Evaluate transits directly hitting natal evolutionary points
+  for (const hit of hits) {
+    if (hit.natal === "pluto") {
+      jwgeaActivations.push(
+        new JwgeaEvolutionaryActivation({
+          transitBody: hit.transit as CelestialBody,
+          target: "pluto",
+          aspect: hit.aspect,
+          orb: hit.orb,
+        }),
+      );
+    } else if (hit.natal === "true_node" || hit.natal === "north_node") {
+      jwgeaActivations.push(
+        new JwgeaEvolutionaryActivation({
+          transitBody: hit.transit as CelestialBody,
+          target: "north_node",
+          aspect: hit.aspect,
+          orb: hit.orb,
+        }),
+      );
+    } else if (natal.jwgea.skippedSteps.some((s) => s.body === hit.natal)) {
+      jwgeaActivations.push(
+        new JwgeaEvolutionaryActivation({
+          transitBody: hit.transit as CelestialBody,
+          target: "skipped_step",
+          aspect: hit.aspect,
+          orb: hit.orb,
+        }),
+      );
+    }
+  }
+
+  // Also check transits directly to PPP (which is not a default Caelus aspectable body)
+  for (const [id, body] of Object.entries(natal.chart.bodies)) {
+    if (!body) continue;
+    let transitBodyPos: Position;
+    try {
+      transitBodyPos = engine.position(id as BodyId, transitJd);
+    } catch (err) {
+      return yield* new EphemerisError({
+        message: Predicate.isError(err) ? err.message : String(err),
+        date: DateTime.formatIso(transitUtc),
+        body: id,
+      });
+    }
+
+    const sep = angularSeparation(transitBodyPos.lon, pppLon);
+    if (sep <= 3) {
+      jwgeaActivations.push(
+        new JwgeaEvolutionaryActivation({
+          transitBody: id as CelestialBody,
+          target: "ppp",
+          aspect: "conjunction",
+          orb: sep,
+        }),
+      );
+    } else if (Math.abs(sep - 180) <= 3) {
+      jwgeaActivations.push(
+        new JwgeaEvolutionaryActivation({
+          transitBody: id as CelestialBody,
+          target: "ppp",
+          aspect: "opposition",
+          orb: Math.abs(sep - 180),
+        }),
+      );
+    }
+  }
+
+  return {
+    kind: "transits",
+    natalWhenUtc: natal.whenUtc,
+    transitUtc,
+    hits,
+    jwgeaActivations,
+  };
+});
+
+/**
+ * Calculate synastry comparison between Chart A and Chart B (aspects, overlays, evolutionary contacts).
+ */
+const calculateSynastryPipeline = Effect.fn("ChartEngine.calculateSynastryPipeline")(function* (
+  chartA: NatalChart,
+  chartB: NatalChart,
+): Effect.fn.Return<SynastryChart, EphemerisError> {
+  let aspects: ReturnType<typeof synastryAspects>;
+  let overlays: ReturnType<typeof synastryOverlays>;
+
+  try {
+    aspects = synastryAspects(chartA.chart, chartB.chart, 6);
+    overlays = synastryOverlays(chartA.chart, chartB.chart);
+  } catch (err) {
+    return yield* new EphemerisError({
+      message: Predicate.isError(err) ? err.message : String(err),
+    });
+  }
+
+  const crossContacts: JwgeaCrossContact[] = [];
+
+  for (const aspect of aspects) {
+    // Cross contacts to Pluto / Nodes / Skipped steps
+    if (aspect.b === "pluto" || aspect.b === "true_node") {
+      crossContacts.push(
+        new JwgeaCrossContact({
+          sourceBody: aspect.a as CelestialBody,
+          targetPoint: aspect.b,
+          aspect: aspect.aspect,
+          orb: aspect.orb,
+        }),
+      );
+    }
+    if (aspect.a === "pluto" || aspect.a === "true_node") {
+      crossContacts.push(
+        new JwgeaCrossContact({
+          sourceBody: aspect.b as CelestialBody,
+          targetPoint: aspect.a,
+          aspect: aspect.aspect,
+          orb: aspect.orb,
+        }),
+      );
+    }
+  }
+
+  return {
+    kind: "synastry",
+    aspects,
+    overlays,
+    crossContacts,
+  };
+});
+
+/**
+ * Calculate midpoint composite chart and derive its JWGEA analysis.
+ */
+const calculateCompositePipeline = Effect.fn("ChartEngine.calculateCompositePipeline")(function* (
+  chartA: NatalChart,
+  chartB: NatalChart,
+  engine: Engine,
+): Effect.fn.Return<CompositeChart, EphemerisError> {
+  const jdA = dateTimeToJulianDay(chartA.whenUtc);
+  const jdB = dateTimeToJulianDay(chartB.whenUtc);
+
+  // Time & place midpoint (Davison method / mid-instant) for house cusps calculation
+  const midJd = (jdA + jdB) / 2;
+  const midLat = (chartA.location.latitude + chartB.location.latitude) / 2;
+  const midLon = (chartA.location.longitude + chartB.location.longitude) / 2;
+
+  let baseChart: Chart;
+  try {
+    baseChart = engine.chartAt(midJd, midLat, midLon, {
+      houseSystem: normalizeHouseSystem(JWGEA_HOUSE_SYSTEM),
+      zodiac: "tropical",
+      bodies: ["true_lilith"],
+    });
+  } catch (err) {
+    return yield* new EphemerisError({
+      message: Predicate.isError(err) ? err.message : String(err),
+    });
+  }
+
+  // Override longitudes with true midpoint composite placements
+  let placements: ReturnType<typeof compositePlacements>;
+  try {
+    placements = compositePlacements(engine, jdA, jdB);
+  } catch (err) {
+    return yield* new EphemerisError({
+      message: Predicate.isError(err) ? err.message : String(err),
+    });
+  }
+
+  for (const p of placements) {
+    const existing = baseChart.bodies[p.body as BodyId];
+    if (existing) {
+      existing.lon = p.lon;
+      existing.sign = p.sign;
+      existing.signDeg = p.signDeg;
+      existing.house = houseOfLongitude(p.lon, baseChart.cusps);
+    }
+  }
+
+  const jwgea = yield* computeJwgea(baseChart);
+
+  return {
+    kind: "composite",
+    chartAWhenUtc: chartA.whenUtc,
+    chartBWhenUtc: chartB.whenUtc,
+    chart: baseChart,
+    jwgea,
+  };
+});
+
+/**
  * Service interface for astronomical and evolutionary chart calculations (JWGEA).
  *
  * Deep module encapsulating the Caelus ephemeris engine, Porphyry house calculations,
@@ -286,6 +569,22 @@ export class ChartEngine extends Context.Service<
   ChartEngine,
   {
     readonly natal: (input: CalculateChartInputType) => Effect.Effect<NatalChart, EphemerisError>;
+    readonly progressed: (
+      natal: NatalChart,
+      targetUtc: DateTime.Utc,
+    ) => Effect.Effect<ProgressedChart, EphemerisError>;
+    readonly transits: (
+      natal: NatalChart,
+      transitUtc: DateTime.Utc,
+    ) => Effect.Effect<TransitChart, EphemerisError>;
+    readonly synastry: (
+      chartA: NatalChart,
+      chartB: NatalChart,
+    ) => Effect.Effect<SynastryChart, EphemerisError>;
+    readonly composite: (
+      chartA: NatalChart,
+      chartB: NatalChart,
+    ) => Effect.Effect<CompositeChart, EphemerisError>;
   }
 >()("compass/core/ChartEngine") {
   /**
@@ -304,19 +603,107 @@ export class ChartEngine extends Context.Service<
       return yield* calculateNatalPipeline(input, engine);
     });
 
+    const progressed = Effect.fn("ChartEngine.progressed")(function* (
+      natalChart: NatalChart,
+      targetUtc: DateTime.Utc,
+    ) {
+      yield* Effect.logDebug("Calculating progressed chart in ChartEngine", {
+        rootNatalWhenUtc: DateTime.formatIso(natalChart.whenUtc),
+        targetUtc: DateTime.formatIso(targetUtc),
+      });
+
+      return yield* calculateProgressedPipeline(natalChart, targetUtc, engine);
+    });
+
+    const transits = Effect.fn("ChartEngine.transits")(function* (
+      natalChart: NatalChart,
+      transitUtc: DateTime.Utc,
+    ) {
+      yield* Effect.logDebug("Calculating transits in ChartEngine", {
+        natalWhenUtc: DateTime.formatIso(natalChart.whenUtc),
+        transitUtc: DateTime.formatIso(transitUtc),
+      });
+
+      return yield* calculateTransitsPipeline(natalChart, transitUtc, engine);
+    });
+
+    const synastry = Effect.fn("ChartEngine.synastry")(function* (
+      chartA: NatalChart,
+      chartB: NatalChart,
+    ) {
+      yield* Effect.logDebug("Calculating synastry in ChartEngine", {
+        chartAWhenUtc: DateTime.formatIso(chartA.whenUtc),
+        chartBWhenUtc: DateTime.formatIso(chartB.whenUtc),
+      });
+
+      return yield* calculateSynastryPipeline(chartA, chartB);
+    });
+
+    const composite = Effect.fn("ChartEngine.composite")(function* (
+      chartA: NatalChart,
+      chartB: NatalChart,
+    ) {
+      yield* Effect.logDebug("Calculating composite chart in ChartEngine", {
+        chartAWhenUtc: DateTime.formatIso(chartA.whenUtc),
+        chartBWhenUtc: DateTime.formatIso(chartB.whenUtc),
+      });
+
+      return yield* calculateCompositePipeline(chartA, chartB, engine);
+    });
+
     return ChartEngine.of({
       natal,
+      progressed,
+      transits,
+      synastry,
+      composite,
     });
   });
 
   /**
-   * Helper to construct a test layer with a deterministic fake chart.
+   * Helper to construct a test layer with deterministic fake responses.
    */
   static readonly testLayer = (stubChart: NatalChart) =>
     Layer.succeed(
       ChartEngine,
       ChartEngine.of({
         natal: Effect.fn("ChartEngine.natalFake")(() => Effect.succeed(stubChart)),
+        progressed: Effect.fn("ChartEngine.progressedFake")((_, targetUtc) =>
+          Effect.succeed({
+            kind: "progressed",
+            rootNatalWhenUtc: stubChart.whenUtc,
+            targetUtc,
+            location: stubChart.location,
+            chart: stubChart.chart,
+            jwgea: stubChart.jwgea,
+          }),
+        ),
+        transits: Effect.fn("ChartEngine.transitsFake")((_, transitUtc) =>
+          Effect.succeed({
+            kind: "transits",
+            natalWhenUtc: stubChart.whenUtc,
+            transitUtc,
+            hits: [],
+            jwgeaActivations: [],
+          }),
+        ),
+        synastry: Effect.fn("ChartEngine.synastryFake")(() =>
+          Effect.succeed({
+            kind: "synastry",
+            aspects: [],
+            overlays: { aInB: {}, bInA: {} },
+            crossContacts: [],
+          }),
+        ),
+        composite: Effect.fn("ChartEngine.compositeFake")((a, b) =>
+          Effect.succeed({
+            kind: "composite",
+            chartAWhenUtc: a.whenUtc,
+            chartBWhenUtc: b.whenUtc,
+            chart: stubChart.chart,
+            jwgea: stubChart.jwgea,
+          }),
+        ),
       }),
     );
 }

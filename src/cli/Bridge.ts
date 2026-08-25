@@ -1,5 +1,5 @@
 import { AxiError } from "axi-sdk-js";
-import { Cause, Effect, Exit, type Layer, Schema } from "effect";
+import { Cause, Effect, Exit, type Layer, Predicate, Schema } from "effect";
 import {
   DatabaseError,
   EphemerisError,
@@ -57,7 +57,7 @@ export function mapErrorToAxi(error: unknown): AxiError {
     return error;
   }
 
-  if (error instanceof Error) {
+  if (Predicate.isError(error)) {
     return new AxiError(error.message, "INTERNAL_ERROR");
   }
 

@@ -49,11 +49,11 @@ The foundational soul blueprint for an individual birth instant. Always carries 
 ### ProgressedChart
 The secondary progression of a natal chart over time. Recomputes its own `jwgea` analysis from progressed positions, interpreted relative to the root `NatalChart`.
 
-### TransitActivation
+### TransitChart
 Planetary transits at a given instant evaluated strictly against a root `NatalChart`. Transits do not carry a standalone PPP; instead, they expose transiting nodes and planets triggering the natal PPP, nodal axis, and skipped steps.
 
-### SynastryContacts
-An inter-chart comparison between two individual `NatalChart` blueprints, detecting cross-contacts (such as partner planets squaring the other's nodes or contacting Pluto/PPP).
+### SynastryChart
+An inter-chart comparison between two individual `NatalChart` blueprints, detecting cross-contacts (such as partner planets squaring the other's nodes or contacting Pluto/PPP) and house overlays.
 
 ### CompositeChart
 A derived midpoint chart representing the relationship entity itself. Carries its own recomputed `jwgea` analysis (Composite Pluto → Composite PPP, Composite Nodal Axis, etc.).

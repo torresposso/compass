@@ -12,11 +12,26 @@ import {
   normalizeHouseSystem,
   type Position,
   SIGNS,
+  type SynastryAspectHit,
+  type SynastryOverlays,
+  type TransitHit,
 } from "caelus";
 import { type DateTime, Schema } from "effect";
 
 // Re-export Caelus native types
-export type { Aspect, Body, BodyId, CaelusHouseSystem, Chart, ChartBodies, ChartBody, Position };
+export type {
+  Aspect,
+  Body,
+  BodyId,
+  CaelusHouseSystem,
+  Chart,
+  ChartBodies,
+  ChartBody,
+  Position,
+  SynastryAspectHit,
+  SynastryOverlays,
+  TransitHit,
+};
 export { BODIES, EXTRA_BODIES, HOUSE_SYSTEMS, normalizeHouseSystem, SIGNS };
 
 /**
@@ -132,6 +147,30 @@ export class JwgeaAnalysis extends Schema.Class<JwgeaAnalysis>("compass/core/Jwg
 }) {}
 
 /**
+ * Transit aspect activation triggering a key natal evolutionary component (PPP, Nodal axis, Skipped steps).
+ */
+export class JwgeaEvolutionaryActivation extends Schema.Class<JwgeaEvolutionaryActivation>(
+  "compass/core/JwgeaEvolutionaryActivation",
+)({
+  transitBody: CelestialBody,
+  target: Schema.Literals(["pluto", "ppp", "north_node", "south_node", "skipped_step"] as const),
+  aspect: Schema.String,
+  orb: Schema.Number,
+}) {}
+
+/**
+ * Inter-chart evolutionary contact between person A and person B.
+ */
+export class JwgeaCrossContact extends Schema.Class<JwgeaCrossContact>(
+  "compass/core/JwgeaCrossContact",
+)({
+  sourceBody: CelestialBody,
+  targetPoint: Schema.String,
+  aspect: Schema.String,
+  orb: Schema.Number,
+}) {}
+
+/**
  * Natal chart: the foundational soul blueprint for an individual birth instant.
  */
 export interface NatalChart {
@@ -143,7 +182,55 @@ export interface NatalChart {
 }
 
 /**
- * Discriminated union of every Compass chart kind. Phase 2 materializes only
- * `NatalChart`; `progressed`, `transits`, and `synastry` join in later phases.
+ * Progressed chart: secondary progression of a natal chart over time (day for a year).
  */
-export type CompassChart = NatalChart;
+export interface ProgressedChart {
+  readonly kind: "progressed";
+  readonly rootNatalWhenUtc: DateTime.Utc;
+  readonly targetUtc: DateTime.Utc;
+  readonly location: GeoLocation;
+  readonly chart: Chart;
+  readonly jwgea: JwgeaAnalysis;
+}
+
+/**
+ * Transit chart: active transits evaluated against a root natal chart.
+ */
+export interface TransitChart {
+  readonly kind: "transits";
+  readonly natalWhenUtc: DateTime.Utc;
+  readonly transitUtc: DateTime.Utc;
+  readonly hits: readonly TransitHit[];
+  readonly jwgeaActivations: readonly JwgeaEvolutionaryActivation[];
+}
+
+/**
+ * Synastry chart: inter-chart comparative dynamics between chart A and chart B.
+ */
+export interface SynastryChart {
+  readonly kind: "synastry";
+  readonly aspects: readonly SynastryAspectHit[];
+  readonly overlays: SynastryOverlays;
+  readonly crossContacts: readonly JwgeaCrossContact[];
+}
+
+/**
+ * Composite chart: relationship entity midpoint chart with recomputed JWGEA analysis.
+ */
+export interface CompositeChart {
+  readonly kind: "composite";
+  readonly chartAWhenUtc: DateTime.Utc;
+  readonly chartBWhenUtc: DateTime.Utc;
+  readonly chart: Chart;
+  readonly jwgea: JwgeaAnalysis;
+}
+
+/**
+ * Discriminated union of every Compass chart kind.
+ */
+export type CompassChart =
+  | NatalChart
+  | ProgressedChart
+  | TransitChart
+  | SynastryChart
+  | CompositeChart;

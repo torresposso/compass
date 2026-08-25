@@ -1,7 +1,7 @@
 import { describe, expect, it } from "bun:test";
 import type { Chart } from "caelus";
 import { DateTime, Effect, Schema } from "effect";
-import { ChartEngine } from "../src/core/ChartEngine.js";
+import { ChartEngine, houseOfLongitude } from "../src/core/ChartEngine.js";
 import {
   CalculateChartInput,
   GeoLocation,
@@ -49,6 +49,68 @@ describe("ChartEngine Service", () => {
         longitude: 0,
       }),
     ).toThrow();
+  });
+
+  it("calculates natal chart deterministically (deepEqual on repeat runs)", async () => {
+    const input = decodeInput({
+      whenUtc: "1993-11-04T12:00:00Z",
+      latitude: 51.5074,
+      longitude: -0.1278,
+    });
+
+    const program = Effect.gen(function* () {
+      const engine = yield* ChartEngine;
+      const run1 = yield* engine.natal(input);
+      const run2 = yield* engine.natal(input);
+      return { run1, run2 };
+    }).pipe(Effect.provide(ChartEngine.layer));
+
+    const { run1, run2 } = await Effect.runPromise(program);
+    expect(run1).toEqual(run2);
+  });
+
+  it("includes Lilith (true_lilith) in chart bodies calculation", async () => {
+    const input = decodeInput({
+      whenUtc: "2000-01-01T12:00:00Z",
+      latitude: 40.7128,
+      longitude: -74.006,
+    });
+
+    const program = Effect.gen(function* () {
+      const engine = yield* ChartEngine;
+      return yield* engine.natal(input);
+    }).pipe(Effect.provide(ChartEngine.layer));
+
+    const result = await Effect.runPromise(program);
+    expect(result.chart.bodies.true_lilith).toBeDefined();
+    expect(typeof result.chart.bodies.true_lilith?.lon).toBe("number");
+    expect(typeof result.chart.bodies.true_lilith?.house).toBe("number");
+  });
+
+  it("detects skipped steps positively with directional resolution vector", async () => {
+    const input = decodeInput({
+      whenUtc: "2005-01-15T12:00:00Z",
+      latitude: 40.7128,
+      longitude: -74.006,
+    });
+
+    const program = Effect.gen(function* () {
+      const engine = yield* ChartEngine;
+      return yield* engine.natal(input);
+    }).pipe(Effect.provide(ChartEngine.layer));
+
+    const result = await Effect.runPromise(program);
+    expect(result.jwgea.skippedSteps.length).toBeGreaterThan(0);
+
+    const stepBodies = result.jwgea.skippedSteps.map((s) => s.body);
+    expect(stepBodies).toContain("sun");
+    expect(stepBodies).toContain("saturn");
+
+    const sunStep = result.jwgea.skippedSteps.find((s) => s.body === "sun");
+    expect(sunStep?.resolvedVia).toBe("north_node");
+
+    const saturnStep = result.jwgea.skippedSteps.find((s) => s.body === "saturn");
+    expect(saturnStep?.resolvedVia).toBe("south_node");
   });
 
   it("supports testLayer with deterministic fake chart", async () => {
@@ -116,7 +178,6 @@ describe("ChartEngine Service", () => {
   });
 
   it("calculates canonical JWGEA components (PPP, modern rulers, skipped steps)", async () => {
-    // 1993-11-04T12:00:00Z in London (Pluto in Scorpio, Node in Sagittarius/Scorpio transition)
     const input = decodeInput({
       whenUtc: "1993-11-04T12:00:00Z",
       latitude: 51.5074,
@@ -131,7 +192,6 @@ describe("ChartEngine Service", () => {
     const result = await Effect.runPromise(program);
     expect(result.jwgea).toBeDefined();
 
-    // Verify Pluto Polarity Point (PPP = Pluto lon + 180 % 360)
     const pluto = result.chart.bodies.pluto;
     expect(pluto).toBeDefined();
     if (pluto) {
@@ -141,7 +201,6 @@ describe("ChartEngine Service", () => {
       expect(result.jwgea.plutoPolarityPoint.house).toBeLessThanOrEqual(12);
     }
 
-    // Verify Modern Rulers (e.g. Scorpio -> Pluto, Aquarius -> Uranus, Pisces -> Neptune)
     const northSign = result.jwgea.northNode.sign;
     if (northSign === "Scorpio") {
       expect(result.jwgea.northNode.ruler).toBe("pluto");
@@ -152,10 +211,149 @@ describe("ChartEngine Service", () => {
     expect(result.jwgea.northNode.rulerHouse).toBeGreaterThanOrEqual(1);
     expect(result.jwgea.southNode.rulerHouse).toBeGreaterThanOrEqual(1);
 
-    // Verify skipped steps structure
     expect(Array.isArray(result.jwgea.skippedSteps)).toBe(true);
     for (const step of result.jwgea.skippedSteps) {
       expect(["north_node", "south_node"]).toContain(step.resolvedVia);
     }
+  });
+
+  it("calculates secondary progressed chart (day-for-a-year) with its own JWGEA analysis", async () => {
+    const natalInput = decodeInput({
+      whenUtc: "1990-06-10T14:30:00Z",
+      latitude: 40.7128,
+      longitude: -74.006,
+    });
+    const targetUtc = Schema.decodeUnknownSync(Schema.DateTimeUtcFromString)(
+      "2025-06-10T14:30:00Z",
+    );
+
+    const program = Effect.gen(function* () {
+      const engine = yield* ChartEngine;
+      const natal = yield* engine.natal(natalInput);
+      return yield* engine.progressed(natal, targetUtc);
+    }).pipe(Effect.provide(ChartEngine.layer));
+
+    const result = await Effect.runPromise(program);
+    expect(result.kind).toBe("progressed");
+    expect(DateTime.formatIso(result.rootNatalWhenUtc)).toBe("1990-06-10T14:30:00.000Z");
+    expect(DateTime.formatIso(result.targetUtc)).toBe("2025-06-10T14:30:00.000Z");
+    expect(result.chart.houseSystem).toBe("porphyry");
+    expect(result.jwgea.plutoPolarityPoint).toBeDefined();
+    expect(result.jwgea.northNode).toBeDefined();
+  });
+
+  it("calculates transits against a natal chart with evolutionary activations", async () => {
+    const natalInput = decodeInput({
+      whenUtc: "1990-06-10T14:30:00Z",
+      latitude: 40.7128,
+      longitude: -74.006,
+    });
+    const transitUtc = Schema.decodeUnknownSync(Schema.DateTimeUtcFromString)(
+      "2026-08-24T12:00:00Z",
+    );
+
+    const program = Effect.gen(function* () {
+      const engine = yield* ChartEngine;
+      const natal = yield* engine.natal(natalInput);
+      return yield* engine.transits(natal, transitUtc);
+    }).pipe(Effect.provide(ChartEngine.layer));
+
+    const result = await Effect.runPromise(program);
+    expect(result.kind).toBe("transits");
+    expect(DateTime.formatIso(result.natalWhenUtc)).toBe("1990-06-10T14:30:00.000Z");
+    expect(DateTime.formatIso(result.transitUtc)).toBe("2026-08-24T12:00:00.000Z");
+    expect(Array.isArray(result.hits)).toBe(true);
+    expect(Array.isArray(result.jwgeaActivations)).toBe(true);
+  });
+
+  it("detects evolutionary activations hitting the Pluto Polarity Point (PPP)", async () => {
+    const natalInput = decodeInput({
+      whenUtc: "1990-06-10T14:30:00Z",
+      latitude: 40.7128,
+      longitude: -74.006,
+    });
+    const transitUtc = Schema.decodeUnknownSync(Schema.DateTimeUtcFromString)(
+      "2024-03-15T12:00:00Z",
+    );
+
+    const program = Effect.gen(function* () {
+      const engine = yield* ChartEngine;
+      const natal = yield* engine.natal(natalInput);
+      return yield* engine.transits(natal, transitUtc);
+    }).pipe(Effect.provide(ChartEngine.layer));
+
+    const result = await Effect.runPromise(program);
+    const pppActivations = result.jwgeaActivations.filter((a) => a.target === "ppp");
+    expect(pppActivations.length).toBeGreaterThan(0);
+    expect(
+      pppActivations.some((a) => a.transitBody === "jupiter" && a.aspect === "conjunction"),
+    ).toBe(true);
+  });
+
+  it("correctly computes houseOfLongitude when a house crosses 0° Aries", () => {
+    // Cusps array where house 12 starts at 345° and house 1 starts at 15°
+    const cusps = [15, 45, 75, 105, 135, 165, 195, 225, 255, 285, 315, 345];
+
+    // 350° is in house 12
+    expect(houseOfLongitude(350, cusps)).toBe(12);
+    // 5° (crossed 0° Aries) is still in house 12 before cusp 1 (15°)
+    expect(houseOfLongitude(5, cusps)).toBe(12);
+    // 20° is in house 1
+    expect(houseOfLongitude(20, cusps)).toBe(1);
+  });
+
+  it("calculates synastry comparison between Chart A and Chart B", async () => {
+    const chartAInput = decodeInput({
+      whenUtc: "1990-06-10T14:30:00Z",
+      latitude: 40.7128,
+      longitude: -74.006,
+    });
+    const chartBInput = decodeInput({
+      whenUtc: "1992-08-15T08:00:00Z",
+      latitude: 51.5074,
+      longitude: -0.1278,
+    });
+
+    const program = Effect.gen(function* () {
+      const engine = yield* ChartEngine;
+      const chartA = yield* engine.natal(chartAInput);
+      const chartB = yield* engine.natal(chartBInput);
+      return yield* engine.synastry(chartA, chartB);
+    }).pipe(Effect.provide(ChartEngine.layer));
+
+    const result = await Effect.runPromise(program);
+    expect(result.kind).toBe("synastry");
+    expect(Array.isArray(result.aspects)).toBe(true);
+    expect(result.overlays.aInB).toBeDefined();
+    expect(result.overlays.bInA).toBeDefined();
+    expect(Array.isArray(result.crossContacts)).toBe(true);
+  });
+
+  it("calculates composite midpoint chart between Chart A and Chart B", async () => {
+    const chartAInput = decodeInput({
+      whenUtc: "1990-06-10T14:30:00Z",
+      latitude: 40.7128,
+      longitude: -74.006,
+    });
+    const chartBInput = decodeInput({
+      whenUtc: "1992-08-15T08:00:00Z",
+      latitude: 51.5074,
+      longitude: -0.1278,
+    });
+
+    const program = Effect.gen(function* () {
+      const engine = yield* ChartEngine;
+      const chartA = yield* engine.natal(chartAInput);
+      const chartB = yield* engine.natal(chartBInput);
+      return yield* engine.composite(chartA, chartB);
+    }).pipe(Effect.provide(ChartEngine.layer));
+
+    const result = await Effect.runPromise(program);
+    expect(result.kind).toBe("composite");
+    expect(DateTime.formatIso(result.chartAWhenUtc)).toBe("1990-06-10T14:30:00.000Z");
+    expect(DateTime.formatIso(result.chartBWhenUtc)).toBe("1992-08-15T08:00:00.000Z");
+    expect(result.chart.houseSystem).toBe("porphyry");
+    expect(result.jwgea.plutoPolarityPoint).toBeDefined();
+    expect(result.jwgea.northNode).toBeDefined();
   });
 });

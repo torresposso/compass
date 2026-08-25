@@ -1,5 +1,6 @@
 import { describe, expect, it } from "bun:test";
-import { DateTime, Effect, Exit, Schema } from "effect";
+import { Cause, DateTime, Effect, Exit, Option, Schema } from "effect";
+import { ProfileAlreadyExistsError, ProfileNotFoundError } from "../src/core/Errors.js";
 import { ProfileStore } from "../src/core/ProfileStore.js";
 import { GeoLocation, Latitude, Longitude, Profile, ProfileSlug } from "../src/core/Schema.js";
 
@@ -48,8 +49,12 @@ describe("ProfileStore Service (TDD)", () => {
     const exit = await Effect.runPromiseExit(program);
     expect(Exit.isFailure(exit)).toBe(true);
     if (Exit.isFailure(exit)) {
-      const error = exit.cause;
-      expect(JSON.stringify(error)).toContain("ProfileNotFoundError");
+      const failure = Cause.findErrorOption(exit.cause);
+      expect(Option.isSome(failure)).toBe(true);
+      if (Option.isSome(failure)) {
+        expect(failure.value).toBeInstanceOf(ProfileNotFoundError);
+        expect((failure.value as ProfileNotFoundError).name).toBe("non-existent");
+      }
     }
   });
 
@@ -63,8 +68,12 @@ describe("ProfileStore Service (TDD)", () => {
     const exit = await Effect.runPromiseExit(program);
     expect(Exit.isFailure(exit)).toBe(true);
     if (Exit.isFailure(exit)) {
-      const error = exit.cause;
-      expect(JSON.stringify(error)).toContain("ProfileAlreadyExistsError");
+      const failure = Cause.findErrorOption(exit.cause);
+      expect(Option.isSome(failure)).toBe(true);
+      if (Option.isSome(failure)) {
+        expect(failure.value).toBeInstanceOf(ProfileAlreadyExistsError);
+        expect((failure.value as ProfileAlreadyExistsError).name).toBe(sampleProfile.slug);
+      }
     }
   });
 
@@ -113,7 +122,7 @@ describe("ProfileStore Service (TDD)", () => {
     expect(exists).toBe(false);
   });
 
-  it("persists and reads profiles from filesystem layer", async () => {
+  it("persists and reads profiles from filesystem JSON layer", async () => {
     const os = await import("node:os");
     const path = await import("node:path");
     const fs = await import("node:fs/promises");
@@ -136,7 +145,7 @@ describe("ProfileStore Service (TDD)", () => {
       expect(fetched.slug).toBe(sampleProfile.slug);
       expect(fetched.name).toBe("Carl Gustav Jung");
 
-      // Verify file existence on disk
+      // Verify file existence on disk as JSON
       const filePath = path.join(tmpDir, `${sampleProfile.slug}.json`);
       const fileContent = JSON.parse(await fs.readFile(filePath, "utf-8"));
       expect(fileContent.name).toBe("Carl Gustav Jung");

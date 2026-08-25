@@ -18,6 +18,11 @@ export interface ProfileStoreService {
   readonly exists: (slug: ProfileSlug) => Effect.Effect<boolean, DatabaseError>;
 }
 
+// Single-step JSON string <-> Profile Schema pipeline
+const ProfileFromJsonString = Schema.fromJsonString(Profile);
+const decodeProfileString = Schema.decodeUnknownEffect(ProfileFromJsonString);
+const encodeProfileString = Schema.encodeEffect(ProfileFromJsonString);
+
 export class ProfileStore extends Context.Service<ProfileStore, ProfileStoreService>()(
   "compass/core/ProfileStore",
 ) {
@@ -35,12 +40,10 @@ export class ProfileStore extends Context.Service<ProfileStore, ProfileStoreServ
             const key = profile.slug as string;
             const map = yield* Ref.get(storage);
             if (map.has(key)) {
-              return yield* Effect.fail(
-                new ProfileAlreadyExistsError({
-                  name: key,
-                  message: `Profile with slug '${key}' already exists`,
-                }),
-              );
+              return yield* new ProfileAlreadyExistsError({
+                name: key,
+                message: `Profile with slug '${key}' already exists`,
+              });
             }
             const next = new Map(map);
             next.set(key, profile);
@@ -54,12 +57,10 @@ export class ProfileStore extends Context.Service<ProfileStore, ProfileStoreServ
             const key = slug as string;
             const found = map.get(key);
             if (!found) {
-              return yield* Effect.fail(
-                new ProfileNotFoundError({
-                  name: key,
-                  message: `Profile '${key}' was not found`,
-                }),
-              );
+              return yield* new ProfileNotFoundError({
+                name: key,
+                message: `Profile '${key}' was not found`,
+              });
             }
             return found;
           }),
@@ -74,12 +75,10 @@ export class ProfileStore extends Context.Service<ProfileStore, ProfileStoreServ
             const key = profile.slug as string;
             const map = yield* Ref.get(storage);
             if (!map.has(key)) {
-              return yield* Effect.fail(
-                new ProfileNotFoundError({
-                  name: key,
-                  message: `Cannot update profile '${key}': not found`,
-                }),
-              );
+              return yield* new ProfileNotFoundError({
+                name: key,
+                message: `Cannot update profile '${key}': not found`,
+              });
             }
             const next = new Map(map);
             next.set(key, profile);
@@ -92,12 +91,10 @@ export class ProfileStore extends Context.Service<ProfileStore, ProfileStoreServ
             const key = slug as string;
             const map = yield* Ref.get(storage);
             if (!map.has(key)) {
-              return yield* Effect.fail(
-                new ProfileNotFoundError({
-                  name: key,
-                  message: `Cannot delete profile '${key}': not found`,
-                }),
-              );
+              return yield* new ProfileNotFoundError({
+                name: key,
+                message: `Cannot delete profile '${key}': not found`,
+              });
             }
             const next = new Map(map);
             next.delete(key);
@@ -128,6 +125,15 @@ function resolveDefaultDataDir(): string {
   return path.join(xdgData, "compass", "profiles");
 }
 
+function isNodeErrorWithCode(cause: unknown, code: string): boolean {
+  return (
+    typeof cause === "object" &&
+    cause !== null &&
+    "code" in cause &&
+    (cause as { code: unknown }).code === code
+  );
+}
+
 function createFileSystemStore(customDir?: string): ProfileStoreService {
   const rootDir = customDir ?? resolveDefaultDataDir();
   const filePathForSlug = (slug: string) => path.join(rootDir, `${slug}.json`);
@@ -147,44 +153,33 @@ function createFileSystemStore(customDir?: string): ProfileStoreService {
       Effect.gen(function* () {
         yield* ensureDir;
         const filePath = filePathForSlug(profile.slug as string);
+        const encodedJson = yield* encodeProfileString(profile).pipe(
+          Effect.mapError(
+            (issue) =>
+              new DatabaseError({
+                operation: "Schema.encode",
+                message: `Failed encoding profile '${profile.slug}': ${issue}`,
+                cause: issue,
+              }),
+          ),
+        );
 
-        const exists = yield* Effect.tryPromise({
-          try: async () => {
-            try {
-              await fs.access(filePath);
-              return true;
-            } catch {
-              return false;
-            }
-          },
-          catch: (cause) =>
-            new DatabaseError({
-              operation: "access",
-              message: `Error checking existence of ${filePath}`,
-              cause,
-            }),
-        });
-
-        if (exists) {
-          return yield* Effect.fail(
-            new ProfileAlreadyExistsError({
-              name: profile.slug as string,
-              message: `Profile '${profile.slug}' already exists at ${filePath}`,
-            }),
-          );
-        }
-
-        const encoded = Schema.encodeSync(Profile)(profile);
-        const json = JSON.stringify(encoded, null, 2);
-
+        // Atomic write with 'wx' flag (fails if file already exists)
         yield* Effect.tryPromise({
-          try: () => fs.writeFile(filePath, json, "utf-8"),
-          catch: (cause) =>
-            new DatabaseError({
+          try: () => fs.writeFile(filePath, `${encodedJson}\n`, { flag: "wx", encoding: "utf-8" }),
+          catch: (cause) => {
+            if (isNodeErrorWithCode(cause, "EEXIST")) {
+              return new ProfileAlreadyExistsError({
+                name: profile.slug as string,
+                message: `Profile '${profile.slug}' already exists at ${filePath}`,
+              });
+            }
+            return new DatabaseError({
               operation: "writeFile",
-              message: `Failed to save profile to ${filePath}`,
+              message: `Failed to create profile file: ${filePath}`,
               cause,
-            }),
+            });
+          },
         });
 
         return profile;
@@ -193,64 +188,33 @@ function createFileSystemStore(customDir?: string): ProfileStoreService {
     get: (slug) =>
       Effect.gen(function* () {
         const filePath = filePathForSlug(slug as string);
-        const exists = yield* Effect.tryPromise({
-          try: async () => {
-            try {
-              await fs.access(filePath);
-              return true;
-            } catch {
-              return false;
-            }
-          },
-          catch: (cause) =>
-            new DatabaseError({
-              operation: "access",
-              message: `Error checking file ${filePath}`,
-              cause,
-            }),
-        });
-
-        if (!exists) {
-          return yield* Effect.fail(
-            new ProfileNotFoundError({
-              name: slug as string,
-              message: `Profile '${slug}' not found at ${filePath}`,
-            }),
-          );
-        }
-
-        const raw = yield* Effect.tryPromise({
+        const content = yield* Effect.tryPromise({
           try: () => fs.readFile(filePath, "utf-8"),
-          catch: (cause) =>
-            new DatabaseError({
+          catch: (cause) => {
+            if (isNodeErrorWithCode(cause, "ENOENT")) {
+              return new ProfileNotFoundError({
+                name: slug as string,
+                message: `Profile '${slug}' not found at ${filePath}`,
+              });
+            }
+            return new DatabaseError({
               operation: "readFile",
-              message: `Failed reading ${filePath}`,
+              message: `Failed reading profile ${filePath}`,
               cause,
-            }),
+            });
+          },
         });
 
-        const parsedJson = yield* Effect.try({
-          try: () => JSON.parse(raw),
-          catch: (cause) =>
-            new DatabaseError({
-              operation: "JSON.parse",
-              message: `Invalid JSON in profile file ${filePath}`,
-              cause,
-            }),
-        });
-
-        const profile = yield* Schema.decodeUnknownEffect(Profile)(parsedJson).pipe(
+        return yield* decodeProfileString(content).pipe(
           Effect.mapError(
             (issue) =>
               new DatabaseError({
                 operation: "Schema.decode",
-                message: `Failed decoding profile schema from ${filePath}: ${issue}`,
+                message: `Failed decoding profile from ${filePath}: ${issue}`,
                 cause: issue,
               }),
           ),
         );
-
-        return profile;
       }),
 
     list: () =>
@@ -287,17 +251,7 @@ function createFileSystemStore(customDir?: string): ProfileStoreService {
               }),
           });
 
-          const parsedJson = yield* Effect.try({
-            try: () => JSON.parse(raw),
-            catch: (cause) =>
-              new DatabaseError({
-                operation: "JSON.parse",
-                message: `Invalid JSON in ${filePath}`,
-                cause,
-              }),
-          });
-
-          const profile = yield* Schema.decodeUnknownEffect(Profile)(parsedJson).pipe(
+          const profile = yield* decodeProfileString(raw).pipe(
             Effect.mapError(
               (issue) =>
                 new DatabaseError({
@@ -317,44 +271,35 @@ function createFileSystemStore(customDir?: string): ProfileStoreService {
       Effect.gen(function* () {
         yield* ensureDir;
         const filePath = filePathForSlug(profile.slug as string);
-
-        const exists = yield* Effect.tryPromise({
-          try: async () => {
-            try {
-              await fs.access(filePath);
-              return true;
-            } catch {
-              return false;
-            }
-          },
-          catch: (cause) =>
-            new DatabaseError({
-              operation: "access",
-              message: `Error checking existence of ${filePath}`,
-              cause,
-            }),
-        });
-
-        if (!exists) {
-          return yield* Effect.fail(
-            new ProfileNotFoundError({
-              name: profile.slug as string,
-              message: `Cannot update profile '${profile.slug}': does not exist at ${filePath}`,
-            }),
-          );
-        }
-
-        const encoded = Schema.encodeSync(Profile)(profile);
-        const json = JSON.stringify(encoded, null, 2);
+        const encodedJson = yield* encodeProfileString(profile).pipe(
+          Effect.mapError(
+            (issue) =>
+              new DatabaseError({
+                operation: "Schema.encode",
+                message: `Failed encoding profile '${profile.slug}': ${issue}`,
+                cause: issue,
+              }),
+          ),
+        );
 
         yield* Effect.tryPromise({
-          try: () => fs.writeFile(filePath, json, "utf-8"),
-          catch: (cause) =>
-            new DatabaseError({
+          try: async () => {
+            await fs.access(filePath);
+            await fs.writeFile(filePath, `${encodedJson}\n`, "utf-8");
+          },
+          catch: (cause) => {
+            if (isNodeErrorWithCode(cause, "ENOENT")) {
+              return new ProfileNotFoundError({
+                name: profile.slug as string,
+                message: `Cannot update profile '${profile.slug}': does not exist at ${filePath}`,
+              });
+            }
+            return new DatabaseError({
               operation: "writeFile",
-              message: `Failed to overwrite profile at ${filePath}`,
+              message: `Failed updating profile at ${filePath}`,
               cause,
-            }),
+            });
+          },
         });
 
         return profile;
@@ -363,40 +308,21 @@ function createFileSystemStore(customDir?: string): ProfileStoreService {
     delete: (slug) =>
       Effect.gen(function* () {
         const filePath = filePathForSlug(slug as string);
-        const exists = yield* Effect.tryPromise({
-          try: async () => {
-            try {
-              await fs.access(filePath);
-              return true;
-            } catch {
-              return false;
-            }
-          },
-          catch: (cause) =>
-            new DatabaseError({
-              operation: "access",
-              message: `Error checking file ${filePath}`,
-              cause,
-            }),
-        });
-
-        if (!exists) {
-          return yield* Effect.fail(
-            new ProfileNotFoundError({
-              name: slug as string,
-              message: `Cannot delete profile '${slug}': file not found`,
-            }),
-          );
-        }
-
         yield* Effect.tryPromise({
           try: () => fs.unlink(filePath),
-          catch: (cause) =>
-            new DatabaseError({
+          catch: (cause) => {
+            if (isNodeErrorWithCode(cause, "ENOENT")) {
+              return new ProfileNotFoundError({
+                name: slug as string,
+                message: `Cannot delete profile '${slug}': file not found`,
+              });
+            }
+            return new DatabaseError({
               operation: "unlink",
               message: `Failed removing file ${filePath}`,
               cause,
-            }),
+            });
+          },
         });
       }),
 

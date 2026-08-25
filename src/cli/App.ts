@@ -44,6 +44,7 @@ export const handleChartCalculate = Effect.fn("handleChartCalculate")(function* 
   const engine = yield* ChartEngine;
   const result = yield* engine.natal(input);
   return {
+    kind: result.kind,
     whenUtc: DateTime.formatIso(result.whenUtc),
     location: {
       latitude: result.location.latitude,
@@ -78,12 +79,43 @@ const ProfileSlugInput = Schema.Struct({
   _: Schema.optional(Schema.Array(Schema.String)),
 });
 
+const ChartProgressedInput = Schema.Struct({
+  slug: Schema.optional(ProfileSlug),
+  targetUtc: Schema.DateTimeUtcFromString,
+  _: Schema.optional(Schema.Array(Schema.String)),
+});
+
+const ChartTransitsInput = Schema.Struct({
+  slug: Schema.optional(ProfileSlug),
+  transitUtc: Schema.DateTimeUtcFromString,
+  _: Schema.optional(Schema.Array(Schema.String)),
+});
+
+const ChartRelationalInput = Schema.Struct({
+  slugA: Schema.optional(ProfileSlug),
+  slugB: Schema.optional(ProfileSlug),
+  _: Schema.optional(Schema.Array(Schema.String)),
+});
+
 function resolveSlug(input: {
   slug?: string;
   _?: readonly string[];
 }): Effect.Effect<ProfileSlug, Schema.SchemaError> {
   const rawSlug = input.slug ?? input._?.[0];
   return Schema.decodeUnknownEffect(ProfileSlug)(rawSlug);
+}
+
+function resolveTwoSlugs(input: {
+  slugA?: string;
+  slugB?: string;
+  _?: readonly string[];
+}): Effect.Effect<[ProfileSlug, ProfileSlug], Schema.SchemaError> {
+  const rawA = input.slugA ?? input._?.[0];
+  const rawB = input.slugB ?? input._?.[1];
+  return Effect.all([
+    Schema.decodeUnknownEffect(ProfileSlug)(rawA),
+    Schema.decodeUnknownEffect(ProfileSlug)(rawB),
+  ]);
 }
 
 export const handleProfileAdd = Effect.fn("handleProfileAdd")(function* (
@@ -182,6 +214,7 @@ export const handleChartNatal = Effect.fn("handleChartNatal")(function* (
       slug: profile.slug,
       name: profile.name,
     },
+    kind: result.kind,
     whenUtc: DateTime.formatIso(result.whenUtc),
     location: {
       latitude: result.location.latitude,
@@ -193,6 +226,157 @@ export const handleChartNatal = Effect.fn("handleChartNatal")(function* (
     bodies: result.chart.bodies,
     aspects: result.chart.aspects,
     jwgea: result.jwgea,
+  };
+});
+
+export const handleChartProgressed = Effect.fn("handleChartProgressed")(function* (
+  input: typeof ChartProgressedInput.Type,
+) {
+  const slug = yield* resolveSlug(input);
+  const store = yield* ProfileStore;
+  const engine = yield* ChartEngine;
+  const profile = yield* store.get(slug);
+
+  const natal = yield* engine.natal(
+    new CalculateChartInput({
+      whenUtc: profile.whenUtc,
+      latitude: profile.location.latitude,
+      longitude: profile.location.longitude,
+    }),
+  );
+
+  const progressed = yield* engine.progressed(natal, input.targetUtc);
+
+  return {
+    profile: {
+      slug: profile.slug,
+      name: profile.name,
+    },
+    kind: progressed.kind,
+    rootNatalWhenUtc: DateTime.formatIso(progressed.rootNatalWhenUtc),
+    targetUtc: DateTime.formatIso(progressed.targetUtc),
+    location: {
+      latitude: progressed.location.latitude,
+      longitude: progressed.location.longitude,
+    },
+    ascendant: progressed.chart.angles.asc,
+    mc: progressed.chart.angles.mc,
+    houses: progressed.chart.cusps,
+    bodies: progressed.chart.bodies,
+    aspects: progressed.chart.aspects,
+    jwgea: progressed.jwgea,
+  };
+});
+
+export const handleChartTransits = Effect.fn("handleChartTransits")(function* (
+  input: typeof ChartTransitsInput.Type,
+) {
+  const slug = yield* resolveSlug(input);
+  const store = yield* ProfileStore;
+  const engine = yield* ChartEngine;
+  const profile = yield* store.get(slug);
+
+  const natal = yield* engine.natal(
+    new CalculateChartInput({
+      whenUtc: profile.whenUtc,
+      latitude: profile.location.latitude,
+      longitude: profile.location.longitude,
+    }),
+  );
+
+  const transits = yield* engine.transits(natal, input.transitUtc);
+
+  return {
+    profile: {
+      slug: profile.slug,
+      name: profile.name,
+    },
+    kind: transits.kind,
+    natalWhenUtc: DateTime.formatIso(transits.natalWhenUtc),
+    transitUtc: DateTime.formatIso(transits.transitUtc),
+    hits: transits.hits,
+    jwgeaActivations: transits.jwgeaActivations,
+  };
+});
+
+export const handleChartSynastry = Effect.fn("handleChartSynastry")(function* (
+  input: typeof ChartRelationalInput.Type,
+) {
+  const [slugA, slugB] = yield* resolveTwoSlugs(input);
+  const store = yield* ProfileStore;
+  const engine = yield* ChartEngine;
+
+  const [profileA, profileB] = yield* Effect.all([store.get(slugA), store.get(slugB)]);
+
+  const [natalA, natalB] = yield* Effect.all([
+    engine.natal(
+      new CalculateChartInput({
+        whenUtc: profileA.whenUtc,
+        latitude: profileA.location.latitude,
+        longitude: profileA.location.longitude,
+      }),
+    ),
+    engine.natal(
+      new CalculateChartInput({
+        whenUtc: profileB.whenUtc,
+        latitude: profileB.location.latitude,
+        longitude: profileB.location.longitude,
+      }),
+    ),
+  ]);
+
+  const synastry = yield* engine.synastry(natalA, natalB);
+
+  return {
+    profileA: { slug: profileA.slug, name: profileA.name },
+    profileB: { slug: profileB.slug, name: profileB.name },
+    kind: synastry.kind,
+    aspects: synastry.aspects,
+    overlays: synastry.overlays,
+    crossContacts: synastry.crossContacts,
+  };
+});
+
+export const handleChartComposite = Effect.fn("handleChartComposite")(function* (
+  input: typeof ChartRelationalInput.Type,
+) {
+  const [slugA, slugB] = yield* resolveTwoSlugs(input);
+  const store = yield* ProfileStore;
+  const engine = yield* ChartEngine;
+
+  const [profileA, profileB] = yield* Effect.all([store.get(slugA), store.get(slugB)]);
+
+  const [natalA, natalB] = yield* Effect.all([
+    engine.natal(
+      new CalculateChartInput({
+        whenUtc: profileA.whenUtc,
+        latitude: profileA.location.latitude,
+        longitude: profileA.location.longitude,
+      }),
+    ),
+    engine.natal(
+      new CalculateChartInput({
+        whenUtc: profileB.whenUtc,
+        latitude: profileB.location.latitude,
+        longitude: profileB.location.longitude,
+      }),
+    ),
+  ]);
+
+  const composite = yield* engine.composite(natalA, natalB);
+
+  return {
+    profileA: { slug: profileA.slug, name: profileA.name },
+    profileB: { slug: profileB.slug, name: profileB.name },
+    kind: composite.kind,
+    chartAWhenUtc: DateTime.formatIso(composite.chartAWhenUtc),
+    chartBWhenUtc: DateTime.formatIso(composite.chartBWhenUtc),
+    ascendant: composite.chart.angles.asc,
+    mc: composite.chart.angles.mc,
+    houses: composite.chart.cusps,
+    bodies: composite.chart.bodies,
+    aspects: composite.chart.aspects,
+    jwgea: composite.jwgea,
   };
 });
 
@@ -209,6 +393,26 @@ export const profileDeleteCommand = makeCommand(
   CompassLiveLayer,
 );
 export const chartNatalCommand = makeCommand(ProfileSlugInput, handleChartNatal, CompassLiveLayer);
+export const chartProgressedCommand = makeCommand(
+  ChartProgressedInput,
+  handleChartProgressed,
+  CompassLiveLayer,
+);
+export const chartTransitsCommand = makeCommand(
+  ChartTransitsInput,
+  handleChartTransits,
+  CompassLiveLayer,
+);
+export const chartSynastryCommand = makeCommand(
+  ChartRelationalInput,
+  handleChartSynastry,
+  CompassLiveLayer,
+);
+export const chartCompositeCommand = makeCommand(
+  ChartRelationalInput,
+  handleChartComposite,
+  CompassLiveLayer,
+);
 
 export const compassCliOptions: AxiCliOptions<undefined> = {
   description: "Deterministic Astrological Chart Engine & Profile Manager CLI (JWGEA Canonical)",
@@ -222,6 +426,10 @@ COMMANDS:
   ping               Smoke test & engine status check
   chart calculate    Calculate natal chart on the fly (--whenUtc, --latitude, --longitude)
   chart natal        Calculate natal chart for a saved profile (<slug> or --slug <slug>)
+  chart progressed   Calculate secondary progressed chart (<slug> --targetUtc <date>)
+  chart transits     Calculate transit activations on natal chart (<slug> --transitUtc <date>)
+  chart synastry     Compare two profiles in synastry (<slugA> <slugB>)
+  chart composite    Calculate midpoint composite chart of two profiles (<slugA> <slugB>)
   profile list       List all saved birth profiles
   profile get        Get profile details (<slug> or --slug <slug>)
   profile add        Save a new birth profile (--slug, --name, --whenUtc, --latitude, --longitude)
@@ -239,6 +447,10 @@ FLAGS:
         "ping",
         "chart calculate",
         "chart natal",
+        "chart progressed",
+        "chart transits",
+        "chart synastry",
+        "chart composite",
         "profile list",
         "profile get",
         "profile add",
@@ -250,6 +462,10 @@ FLAGS:
     ping: pingCommand,
     "chart calculate": chartCalculateCommand,
     "chart natal": chartNatalCommand,
+    "chart progressed": chartProgressedCommand,
+    "chart transits": chartTransitsCommand,
+    "chart synastry": chartSynastryCommand,
+    "chart composite": chartCompositeCommand,
     "profile list": profileListCommand,
     "profile get": profileGetCommand,
     "profile add": profileAddCommand,
