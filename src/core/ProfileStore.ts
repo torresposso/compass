@@ -2,8 +2,58 @@ import * as fs from "node:fs/promises";
 import * as os from "node:os";
 import * as path from "node:path";
 import { Context, Effect, Layer, Ref, Schema } from "effect";
-import { DatabaseError, ProfileAlreadyExistsError, ProfileNotFoundError } from "./Errors.js";
-import { Profile, type ProfileSlug } from "./Schema.js";
+import { GeoLocation } from "./Astronomy.js";
+
+/**
+ * Validated profile slug (lowercase alphanumeric with hyphens).
+ */
+export const ProfileSlug = Schema.String.pipe(
+  Schema.check(Schema.isPattern(/^[a-z0-9]+(?:-[a-z0-9]+)*$/)),
+  Schema.brand("ProfileSlug"),
+);
+export type ProfileSlug = typeof ProfileSlug.Type;
+
+/**
+ * Persisted Soul / Individual birth record.
+ */
+export class Profile extends Schema.Class<Profile>("compass/core/Profile")({
+  slug: ProfileSlug,
+  name: Schema.String,
+  whenUtc: Schema.DateTimeUtcFromString,
+  location: GeoLocation,
+}) {}
+export type ProfileType = typeof Profile.Type;
+
+/**
+ * Raised when a profile identifier or slug is not found in the persistence store.
+ */
+export class ProfileNotFoundError extends Schema.TaggedError<ProfileNotFoundError>()(
+  "ProfileNotFoundError",
+  {
+    name: Schema.String,
+    message: Schema.String,
+  },
+) {}
+
+/**
+ * Raised when attempting to create a profile with a name/slug that already exists.
+ */
+export class ProfileAlreadyExistsError extends Schema.TaggedError<ProfileAlreadyExistsError>()(
+  "ProfileAlreadyExistsError",
+  {
+    name: Schema.String,
+    message: Schema.String,
+  },
+) {}
+
+/**
+ * Raised when a persistence or filesystem operation fails.
+ */
+export class DatabaseError extends Schema.TaggedError<DatabaseError>()("DatabaseError", {
+  message: Schema.String,
+  operation: Schema.String,
+  cause: Schema.optional(Schema.Defect()),
+}) {}
 
 export interface ProfileStoreService {
   readonly create: (
@@ -37,7 +87,7 @@ export class ProfileStore extends Context.Service<ProfileStore, ProfileStoreServ
       return ProfileStore.of({
         create: (profile) =>
           Effect.gen(function* () {
-            const key = profile.slug as string;
+            const key = profile.slug;
             const map = yield* Ref.get(storage);
             if (map.has(key)) {
               return yield* new ProfileAlreadyExistsError({
@@ -54,7 +104,7 @@ export class ProfileStore extends Context.Service<ProfileStore, ProfileStoreServ
         get: (slug) =>
           Effect.gen(function* () {
             const map = yield* Ref.get(storage);
-            const key = slug as string;
+            const key = slug;
             const found = map.get(key);
             if (!found) {
               return yield* new ProfileNotFoundError({
@@ -72,7 +122,7 @@ export class ProfileStore extends Context.Service<ProfileStore, ProfileStoreServ
 
         update: (profile) =>
           Effect.gen(function* () {
-            const key = profile.slug as string;
+            const key = profile.slug;
             const map = yield* Ref.get(storage);
             if (!map.has(key)) {
               return yield* new ProfileNotFoundError({
@@ -88,7 +138,7 @@ export class ProfileStore extends Context.Service<ProfileStore, ProfileStoreServ
 
         delete: (slug) =>
           Effect.gen(function* () {
-            const key = slug as string;
+            const key = slug;
             const map = yield* Ref.get(storage);
             if (!map.has(key)) {
               return yield* new ProfileNotFoundError({
@@ -101,7 +151,7 @@ export class ProfileStore extends Context.Service<ProfileStore, ProfileStoreServ
             yield* Ref.set(storage, next);
           }),
 
-        exists: (slug) => Ref.get(storage).pipe(Effect.map((map) => map.has(slug as string))),
+        exists: (slug) => Ref.get(storage).pipe(Effect.map((map) => map.has(slug))),
       });
     }),
   );
@@ -152,7 +202,7 @@ function createFileSystemStore(customDir?: string): ProfileStoreService {
     create: (profile) =>
       Effect.gen(function* () {
         yield* ensureDir;
-        const filePath = filePathForSlug(profile.slug as string);
+        const filePath = filePathForSlug(profile.slug);
         const encodedJson = yield* encodeProfileString(profile).pipe(
           Effect.mapError(
             (issue) =>
@@ -170,7 +220,7 @@ function createFileSystemStore(customDir?: string): ProfileStoreService {
           catch: (cause) => {
             if (isNodeErrorWithCode(cause, "EEXIST")) {
               return new ProfileAlreadyExistsError({
-                name: profile.slug as string,
+                name: profile.slug,
                 message: `Profile '${profile.slug}' already exists at ${filePath}`,
               });
             }
@@ -187,13 +237,13 @@ function createFileSystemStore(customDir?: string): ProfileStoreService {
 
     get: (slug) =>
       Effect.gen(function* () {
-        const filePath = filePathForSlug(slug as string);
+        const filePath = filePathForSlug(slug);
         const content = yield* Effect.tryPromise({
           try: () => fs.readFile(filePath, "utf-8"),
           catch: (cause) => {
             if (isNodeErrorWithCode(cause, "ENOENT")) {
               return new ProfileNotFoundError({
-                name: slug as string,
+                name: slug,
                 message: `Profile '${slug}' not found at ${filePath}`,
               });
             }
@@ -270,7 +320,7 @@ function createFileSystemStore(customDir?: string): ProfileStoreService {
     update: (profile) =>
       Effect.gen(function* () {
         yield* ensureDir;
-        const filePath = filePathForSlug(profile.slug as string);
+        const filePath = filePathForSlug(profile.slug);
         const encodedJson = yield* encodeProfileString(profile).pipe(
           Effect.mapError(
             (issue) =>
@@ -290,7 +340,7 @@ function createFileSystemStore(customDir?: string): ProfileStoreService {
           catch: (cause) => {
             if (isNodeErrorWithCode(cause, "ENOENT")) {
               return new ProfileNotFoundError({
-                name: profile.slug as string,
+                name: profile.slug,
                 message: `Cannot update profile '${profile.slug}': does not exist at ${filePath}`,
               });
             }
@@ -307,13 +357,13 @@ function createFileSystemStore(customDir?: string): ProfileStoreService {
 
     delete: (slug) =>
       Effect.gen(function* () {
-        const filePath = filePathForSlug(slug as string);
+        const filePath = filePathForSlug(slug);
         yield* Effect.tryPromise({
           try: () => fs.unlink(filePath),
           catch: (cause) => {
             if (isNodeErrorWithCode(cause, "ENOENT")) {
               return new ProfileNotFoundError({
-                name: slug as string,
+                name: slug,
                 message: `Cannot delete profile '${slug}': file not found`,
               });
             }
@@ -330,7 +380,7 @@ function createFileSystemStore(customDir?: string): ProfileStoreService {
       Effect.tryPromise({
         try: async () => {
           try {
-            await fs.access(filePathForSlug(slug as string));
+            await fs.access(filePathForSlug(slug));
             return true;
           } catch {
             return false;

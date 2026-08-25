@@ -1,8 +1,13 @@
 import { describe, expect, it } from "bun:test";
 import { Cause, DateTime, Effect, Exit, Option, Schema } from "effect";
-import { ProfileAlreadyExistsError, ProfileNotFoundError } from "../src/core/Errors.js";
-import { ProfileStore } from "../src/core/ProfileStore.js";
-import { GeoLocation, Latitude, Longitude, Profile, ProfileSlug } from "../src/core/Schema.js";
+import { GeoLocation, Latitude, Longitude } from "../src/core/Astronomy.js";
+import {
+  Profile,
+  ProfileAlreadyExistsError,
+  ProfileNotFoundError,
+  ProfileSlug,
+  ProfileStore,
+} from "../src/core/ProfileStore.js";
 
 const sampleProfile = new Profile({
   slug: Schema.decodeUnknownSync(ProfileSlug)("carl-jung"),

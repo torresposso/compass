@@ -1,21 +1,30 @@
 import { describe, expect, it } from "bun:test";
 import type { Chart } from "caelus";
-import { DateTime, Effect, Schema } from "effect";
-import { ChartEngine, houseOfLongitude } from "../src/core/ChartEngine.js";
-import {
-  CalculateChartInput,
-  GeoLocation,
-  JwgeaAnalysis,
-  JwgeaNodalPoint,
-  JwgeaPoint,
-  Latitude,
-  Longitude,
-  type NatalChart,
-} from "../src/core/Schema.js";
+import { DateTime, Effect, Layer, Schema } from "effect";
+import { GeoLocation, Latitude, Longitude } from "../src/core/Astronomy.js";
+import type { NatalChart } from "../src/core/Charts.js";
+import { CompositeService } from "../src/core/CompositeService.js";
+import { Ephemeris } from "../src/core/Ephemeris.js";
+import { houseOfLongitude, JwgeaAnalysis, JwgeaNodalPoint, JwgeaPoint } from "../src/core/Jwgea.js";
+import { CalculateChartInput, NatalService } from "../src/core/NatalService.js";
+import { ProgressedService } from "../src/core/ProgressedService.js";
+import { SynastryService } from "../src/core/SynastryService.js";
+import { TransitsService } from "../src/core/TransitsService.js";
 
 const decodeInput = Schema.decodeUnknownSync(CalculateChartInput);
 
-describe("ChartEngine Service", () => {
+const ChartServicesLive = Layer.provide(
+  Layer.mergeAll(
+    NatalService.layer,
+    ProgressedService.layer,
+    TransitsService.layer,
+    SynastryService.layer,
+    CompositeService.layer,
+  ),
+  Ephemeris.layer,
+);
+
+describe("Chart Services (JWGEA Canonical)", () => {
   it("calculates natal chart with Caelus live layer (defaults to porphyry)", async () => {
     const input = decodeInput({
       whenUtc: "2024-03-21T12:00:00Z",
@@ -24,9 +33,9 @@ describe("ChartEngine Service", () => {
     });
 
     const program = Effect.gen(function* () {
-      const engine = yield* ChartEngine;
-      return yield* engine.natal(input);
-    }).pipe(Effect.provide(ChartEngine.layer));
+      const natalService = yield* NatalService;
+      return yield* natalService.natal(input);
+    }).pipe(Effect.provide(ChartServicesLive));
 
     const result = await Effect.runPromise(program);
     expect(result.kind).toBe("natal");
@@ -59,11 +68,11 @@ describe("ChartEngine Service", () => {
     });
 
     const program = Effect.gen(function* () {
-      const engine = yield* ChartEngine;
-      const run1 = yield* engine.natal(input);
-      const run2 = yield* engine.natal(input);
+      const natalService = yield* NatalService;
+      const run1 = yield* natalService.natal(input);
+      const run2 = yield* natalService.natal(input);
       return { run1, run2 };
-    }).pipe(Effect.provide(ChartEngine.layer));
+    }).pipe(Effect.provide(ChartServicesLive));
 
     const { run1, run2 } = await Effect.runPromise(program);
     expect(run1).toEqual(run2);
@@ -77,9 +86,9 @@ describe("ChartEngine Service", () => {
     });
 
     const program = Effect.gen(function* () {
-      const engine = yield* ChartEngine;
-      return yield* engine.natal(input);
-    }).pipe(Effect.provide(ChartEngine.layer));
+      const natalService = yield* NatalService;
+      return yield* natalService.natal(input);
+    }).pipe(Effect.provide(ChartServicesLive));
 
     const result = await Effect.runPromise(program);
     expect(result.chart.bodies.true_lilith).toBeDefined();
@@ -95,9 +104,9 @@ describe("ChartEngine Service", () => {
     });
 
     const program = Effect.gen(function* () {
-      const engine = yield* ChartEngine;
-      return yield* engine.natal(input);
-    }).pipe(Effect.provide(ChartEngine.layer));
+      const natalService = yield* NatalService;
+      return yield* natalService.natal(input);
+    }).pipe(Effect.provide(ChartServicesLive));
 
     const result = await Effect.runPromise(program);
     expect(result.jwgea.skippedSteps.length).toBeGreaterThan(0);
@@ -169,9 +178,9 @@ describe("ChartEngine Service", () => {
     });
 
     const program = Effect.gen(function* () {
-      const engine = yield* ChartEngine;
-      return yield* engine.natal(input);
-    }).pipe(Effect.provide(ChartEngine.testLayer(fakeChart)));
+      const natalService = yield* NatalService;
+      return yield* natalService.natal(input);
+    }).pipe(Effect.provide(NatalService.testLayer(fakeChart)));
 
     const result = await Effect.runPromise(program);
     expect(result).toEqual(fakeChart);
@@ -185,9 +194,9 @@ describe("ChartEngine Service", () => {
     });
 
     const program = Effect.gen(function* () {
-      const engine = yield* ChartEngine;
-      return yield* engine.natal(input);
-    }).pipe(Effect.provide(ChartEngine.layer));
+      const natalService = yield* NatalService;
+      return yield* natalService.natal(input);
+    }).pipe(Effect.provide(ChartServicesLive));
 
     const result = await Effect.runPromise(program);
     expect(result.jwgea).toBeDefined();
@@ -228,10 +237,11 @@ describe("ChartEngine Service", () => {
     );
 
     const program = Effect.gen(function* () {
-      const engine = yield* ChartEngine;
-      const natal = yield* engine.natal(natalInput);
-      return yield* engine.progressed(natal, targetUtc);
-    }).pipe(Effect.provide(ChartEngine.layer));
+      const natalService = yield* NatalService;
+      const progressedService = yield* ProgressedService;
+      const natal = yield* natalService.natal(natalInput);
+      return yield* progressedService.progressed(natal, targetUtc);
+    }).pipe(Effect.provide(ChartServicesLive));
 
     const result = await Effect.runPromise(program);
     expect(result.kind).toBe("progressed");
@@ -253,10 +263,11 @@ describe("ChartEngine Service", () => {
     );
 
     const program = Effect.gen(function* () {
-      const engine = yield* ChartEngine;
-      const natal = yield* engine.natal(natalInput);
-      return yield* engine.transits(natal, transitUtc);
-    }).pipe(Effect.provide(ChartEngine.layer));
+      const natalService = yield* NatalService;
+      const transitsService = yield* TransitsService;
+      const natal = yield* natalService.natal(natalInput);
+      return yield* transitsService.transits(natal, transitUtc);
+    }).pipe(Effect.provide(ChartServicesLive));
 
     const result = await Effect.runPromise(program);
     expect(result.kind).toBe("transits");
@@ -277,10 +288,11 @@ describe("ChartEngine Service", () => {
     );
 
     const program = Effect.gen(function* () {
-      const engine = yield* ChartEngine;
-      const natal = yield* engine.natal(natalInput);
-      return yield* engine.transits(natal, transitUtc);
-    }).pipe(Effect.provide(ChartEngine.layer));
+      const natalService = yield* NatalService;
+      const transitsService = yield* TransitsService;
+      const natal = yield* natalService.natal(natalInput);
+      return yield* transitsService.transits(natal, transitUtc);
+    }).pipe(Effect.provide(ChartServicesLive));
 
     const result = await Effect.runPromise(program);
     const pppActivations = result.jwgeaActivations.filter((a) => a.target === "ppp");
@@ -315,11 +327,12 @@ describe("ChartEngine Service", () => {
     });
 
     const program = Effect.gen(function* () {
-      const engine = yield* ChartEngine;
-      const chartA = yield* engine.natal(chartAInput);
-      const chartB = yield* engine.natal(chartBInput);
-      return yield* engine.synastry(chartA, chartB);
-    }).pipe(Effect.provide(ChartEngine.layer));
+      const natalService = yield* NatalService;
+      const synastryService = yield* SynastryService;
+      const chartA = yield* natalService.natal(chartAInput);
+      const chartB = yield* natalService.natal(chartBInput);
+      return yield* synastryService.synastry(chartA, chartB);
+    }).pipe(Effect.provide(ChartServicesLive));
 
     const result = await Effect.runPromise(program);
     expect(result.kind).toBe("synastry");
@@ -342,11 +355,12 @@ describe("ChartEngine Service", () => {
     });
 
     const program = Effect.gen(function* () {
-      const engine = yield* ChartEngine;
-      const chartA = yield* engine.natal(chartAInput);
-      const chartB = yield* engine.natal(chartBInput);
-      return yield* engine.composite(chartA, chartB);
-    }).pipe(Effect.provide(ChartEngine.layer));
+      const natalService = yield* NatalService;
+      const compositeService = yield* CompositeService;
+      const chartA = yield* natalService.natal(chartAInput);
+      const chartB = yield* natalService.natal(chartBInput);
+      return yield* compositeService.composite(chartA, chartB);
+    }).pipe(Effect.provide(ChartServicesLive));
 
     const result = await Effect.runPromise(program);
     expect(result.kind).toBe("composite");

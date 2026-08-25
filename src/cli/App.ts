@@ -1,418 +1,83 @@
-import { type AxiCliCommand, type AxiCliOptions, runAxiCli } from "axi-sdk-js";
-import { DateTime, Effect, Layer, Schema } from "effect";
-import { ChartEngine } from "../core/ChartEngine.js";
+import { type AxiCliOptions, runAxiCli } from "axi-sdk-js";
+import { Layer } from "effect";
+import { CompositeService } from "../core/CompositeService.js";
+import { Ephemeris } from "../core/Ephemeris.js";
+import { NatalService } from "../core/NatalService.js";
 import { ProfileStore } from "../core/ProfileStore.js";
-import {
-  CalculateChartInput,
-  GeoLocation,
-  Latitude,
-  Longitude,
-  Profile,
-  ProfileSlug,
-} from "../core/Schema.js";
+import { ProgressedService } from "../core/ProgressedService.js";
+import { SynastryService } from "../core/SynastryService.js";
+import { TransitsService } from "../core/TransitsService.js";
 import { VERSION } from "../Version.js";
-import { makeCommand } from "./Command.js";
-
-/**
- * Combined runtime Layer for the CLI: ChartEngine + ProfileStore (FileSystem)
- */
-export const CompassLiveLayer = Layer.merge(ChartEngine.layer, ProfileStore.fileSystemLayer());
-
-/**
- * Ping handler defined with Effect.fn for proper span tracing & debugging.
- */
-export const handlePing = Effect.fn("handlePing")(function* (_: Record<string, never>) {
-  yield* Effect.logDebug("executing ping smoke test");
-  const now = yield* DateTime.now;
-  return {
-    status: "ok",
-    name: "compass",
-    version: VERSION,
-    engine: "caelus+effect",
-    timestamp: DateTime.formatIso(now),
-  };
-});
-
-export const pingCommand: AxiCliCommand<undefined> = makeCommand(Schema.Struct({}), handlePing);
-
-/**
- * Chart calculate handler defined with Effect.fn consuming ChartEngine service.
- */
-export const handleChartCalculate = Effect.fn("handleChartCalculate")(function* (
-  input: CalculateChartInput,
-) {
-  const engine = yield* ChartEngine;
-  const result = yield* engine.natal(input);
-  return {
-    kind: result.kind,
-    whenUtc: DateTime.formatIso(result.whenUtc),
-    location: {
-      latitude: result.location.latitude,
-      longitude: result.location.longitude,
-    },
-    ascendant: result.chart.angles.asc,
-    mc: result.chart.angles.mc,
-    houses: result.chart.cusps,
-    bodies: result.chart.bodies,
-    aspects: result.chart.aspects,
-    jwgea: result.jwgea,
-  };
-});
-
-export const chartCalculateCommand: AxiCliCommand<undefined> = makeCommand(
-  CalculateChartInput,
+import {
   handleChartCalculate,
-  ChartEngine.layer,
-);
-
-// Schemas for Profile CLI operations
-const ProfileAddInput = Schema.Struct({
-  slug: ProfileSlug,
-  name: Schema.String,
-  whenUtc: Schema.DateTimeUtcFromString,
-  latitude: Latitude,
-  longitude: Longitude,
-});
-
-const ProfileSlugInput = Schema.Struct({
-  slug: Schema.optional(ProfileSlug),
-  _: Schema.optional(Schema.Array(Schema.String)),
-});
-
-const ChartProgressedInput = Schema.Struct({
-  slug: Schema.optional(ProfileSlug),
-  targetUtc: Schema.DateTimeUtcFromString,
-  _: Schema.optional(Schema.Array(Schema.String)),
-});
-
-const ChartTransitsInput = Schema.Struct({
-  slug: Schema.optional(ProfileSlug),
-  transitUtc: Schema.DateTimeUtcFromString,
-  _: Schema.optional(Schema.Array(Schema.String)),
-});
-
-const ChartRelationalInput = Schema.Struct({
-  slugA: Schema.optional(ProfileSlug),
-  slugB: Schema.optional(ProfileSlug),
-  _: Schema.optional(Schema.Array(Schema.String)),
-});
-
-function resolveSlug(input: {
-  slug?: string;
-  _?: readonly string[];
-}): Effect.Effect<ProfileSlug, Schema.SchemaError> {
-  const rawSlug = input.slug ?? input._?.[0];
-  return Schema.decodeUnknownEffect(ProfileSlug)(rawSlug);
-}
-
-function resolveTwoSlugs(input: {
-  slugA?: string;
-  slugB?: string;
-  _?: readonly string[];
-}): Effect.Effect<[ProfileSlug, ProfileSlug], Schema.SchemaError> {
-  const rawA = input.slugA ?? input._?.[0];
-  const rawB = input.slugB ?? input._?.[1];
-  return Effect.all([
-    Schema.decodeUnknownEffect(ProfileSlug)(rawA),
-    Schema.decodeUnknownEffect(ProfileSlug)(rawB),
-  ]);
-}
-
-export const handleProfileAdd = Effect.fn("handleProfileAdd")(function* (
-  input: typeof ProfileAddInput.Type,
-) {
-  const store = yield* ProfileStore;
-  const profile = new Profile({
-    slug: input.slug,
-    name: input.name,
-    whenUtc: input.whenUtc,
-    location: new GeoLocation({
-      latitude: input.latitude,
-      longitude: input.longitude,
-    }),
-  });
-
-  const created = yield* store.create(profile);
-  return {
-    status: "created",
-    profile: {
-      slug: created.slug,
-      name: created.name,
-      whenUtc: DateTime.formatIso(created.whenUtc),
-      location: {
-        latitude: created.location.latitude,
-        longitude: created.location.longitude,
-      },
-    },
-  };
-});
-
-export const handleProfileList = Effect.fn("handleProfileList")(function* () {
-  const store = yield* ProfileStore;
-  const profiles = yield* store.list();
-  return {
-    count: profiles.length,
-    profiles: profiles.map((p) => ({
-      slug: p.slug,
-      name: p.name,
-      whenUtc: DateTime.formatIso(p.whenUtc),
-      location: {
-        latitude: p.location.latitude,
-        longitude: p.location.longitude,
-      },
-    })),
-  };
-});
-
-export const handleProfileGet = Effect.fn("handleProfileGet")(function* (
-  input: typeof ProfileSlugInput.Type,
-) {
-  const slug = yield* resolveSlug(input);
-  const store = yield* ProfileStore;
-  const profile = yield* store.get(slug);
-  return {
-    slug: profile.slug,
-    name: profile.name,
-    whenUtc: DateTime.formatIso(profile.whenUtc),
-    location: {
-      latitude: profile.location.latitude,
-      longitude: profile.location.longitude,
-    },
-  };
-});
-
-export const handleProfileDelete = Effect.fn("handleProfileDelete")(function* (
-  input: typeof ProfileSlugInput.Type,
-) {
-  const slug = yield* resolveSlug(input);
-  const store = yield* ProfileStore;
-  yield* store.delete(slug);
-  return {
-    status: "deleted",
-    slug,
-  };
-});
-
-export const handleChartNatal = Effect.fn("handleChartNatal")(function* (
-  input: typeof ProfileSlugInput.Type,
-) {
-  const slug = yield* resolveSlug(input);
-  const store = yield* ProfileStore;
-  const engine = yield* ChartEngine;
-  const profile = yield* store.get(slug);
-
-  const chartInput = new CalculateChartInput({
-    whenUtc: profile.whenUtc,
-    latitude: profile.location.latitude,
-    longitude: profile.location.longitude,
-  });
-
-  const result = yield* engine.natal(chartInput);
-
-  return {
-    profile: {
-      slug: profile.slug,
-      name: profile.name,
-    },
-    kind: result.kind,
-    whenUtc: DateTime.formatIso(result.whenUtc),
-    location: {
-      latitude: result.location.latitude,
-      longitude: result.location.longitude,
-    },
-    ascendant: result.chart.angles.asc,
-    mc: result.chart.angles.mc,
-    houses: result.chart.cusps,
-    bodies: result.chart.bodies,
-    aspects: result.chart.aspects,
-    jwgea: result.jwgea,
-  };
-});
-
-export const handleChartProgressed = Effect.fn("handleChartProgressed")(function* (
-  input: typeof ChartProgressedInput.Type,
-) {
-  const slug = yield* resolveSlug(input);
-  const store = yield* ProfileStore;
-  const engine = yield* ChartEngine;
-  const profile = yield* store.get(slug);
-
-  const natal = yield* engine.natal(
-    new CalculateChartInput({
-      whenUtc: profile.whenUtc,
-      latitude: profile.location.latitude,
-      longitude: profile.location.longitude,
-    }),
-  );
-
-  const progressed = yield* engine.progressed(natal, input.targetUtc);
-
-  return {
-    profile: {
-      slug: profile.slug,
-      name: profile.name,
-    },
-    kind: progressed.kind,
-    rootNatalWhenUtc: DateTime.formatIso(progressed.rootNatalWhenUtc),
-    targetUtc: DateTime.formatIso(progressed.targetUtc),
-    location: {
-      latitude: progressed.location.latitude,
-      longitude: progressed.location.longitude,
-    },
-    ascendant: progressed.chart.angles.asc,
-    mc: progressed.chart.angles.mc,
-    houses: progressed.chart.cusps,
-    bodies: progressed.chart.bodies,
-    aspects: progressed.chart.aspects,
-    jwgea: progressed.jwgea,
-  };
-});
-
-export const handleChartTransits = Effect.fn("handleChartTransits")(function* (
-  input: typeof ChartTransitsInput.Type,
-) {
-  const slug = yield* resolveSlug(input);
-  const store = yield* ProfileStore;
-  const engine = yield* ChartEngine;
-  const profile = yield* store.get(slug);
-
-  const natal = yield* engine.natal(
-    new CalculateChartInput({
-      whenUtc: profile.whenUtc,
-      latitude: profile.location.latitude,
-      longitude: profile.location.longitude,
-    }),
-  );
-
-  const transits = yield* engine.transits(natal, input.transitUtc);
-
-  return {
-    profile: {
-      slug: profile.slug,
-      name: profile.name,
-    },
-    kind: transits.kind,
-    natalWhenUtc: DateTime.formatIso(transits.natalWhenUtc),
-    transitUtc: DateTime.formatIso(transits.transitUtc),
-    hits: transits.hits,
-    jwgeaActivations: transits.jwgeaActivations,
-  };
-});
-
-export const handleChartSynastry = Effect.fn("handleChartSynastry")(function* (
-  input: typeof ChartRelationalInput.Type,
-) {
-  const [slugA, slugB] = yield* resolveTwoSlugs(input);
-  const store = yield* ProfileStore;
-  const engine = yield* ChartEngine;
-
-  const [profileA, profileB] = yield* Effect.all([store.get(slugA), store.get(slugB)]);
-
-  const [natalA, natalB] = yield* Effect.all([
-    engine.natal(
-      new CalculateChartInput({
-        whenUtc: profileA.whenUtc,
-        latitude: profileA.location.latitude,
-        longitude: profileA.location.longitude,
-      }),
-    ),
-    engine.natal(
-      new CalculateChartInput({
-        whenUtc: profileB.whenUtc,
-        latitude: profileB.location.latitude,
-        longitude: profileB.location.longitude,
-      }),
-    ),
-  ]);
-
-  const synastry = yield* engine.synastry(natalA, natalB);
-
-  return {
-    profileA: { slug: profileA.slug, name: profileA.name },
-    profileB: { slug: profileB.slug, name: profileB.name },
-    kind: synastry.kind,
-    aspects: synastry.aspects,
-    overlays: synastry.overlays,
-    crossContacts: synastry.crossContacts,
-  };
-});
-
-export const handleChartComposite = Effect.fn("handleChartComposite")(function* (
-  input: typeof ChartRelationalInput.Type,
-) {
-  const [slugA, slugB] = yield* resolveTwoSlugs(input);
-  const store = yield* ProfileStore;
-  const engine = yield* ChartEngine;
-
-  const [profileA, profileB] = yield* Effect.all([store.get(slugA), store.get(slugB)]);
-
-  const [natalA, natalB] = yield* Effect.all([
-    engine.natal(
-      new CalculateChartInput({
-        whenUtc: profileA.whenUtc,
-        latitude: profileA.location.latitude,
-        longitude: profileA.location.longitude,
-      }),
-    ),
-    engine.natal(
-      new CalculateChartInput({
-        whenUtc: profileB.whenUtc,
-        latitude: profileB.location.latitude,
-        longitude: profileB.location.longitude,
-      }),
-    ),
-  ]);
-
-  const composite = yield* engine.composite(natalA, natalB);
-
-  return {
-    profileA: { slug: profileA.slug, name: profileA.name },
-    profileB: { slug: profileB.slug, name: profileB.name },
-    kind: composite.kind,
-    chartAWhenUtc: DateTime.formatIso(composite.chartAWhenUtc),
-    chartBWhenUtc: DateTime.formatIso(composite.chartBWhenUtc),
-    ascendant: composite.chart.angles.asc,
-    mc: composite.chart.angles.mc,
-    houses: composite.chart.cusps,
-    bodies: composite.chart.bodies,
-    aspects: composite.chart.aspects,
-    jwgea: composite.jwgea,
-  };
-});
-
-export const profileAddCommand = makeCommand(ProfileAddInput, handleProfileAdd, CompassLiveLayer);
-export const profileListCommand = makeCommand(
-  Schema.Struct({}),
-  handleProfileList,
-  CompassLiveLayer,
-);
-export const profileGetCommand = makeCommand(ProfileSlugInput, handleProfileGet, CompassLiveLayer);
-export const profileDeleteCommand = makeCommand(
-  ProfileSlugInput,
-  handleProfileDelete,
-  CompassLiveLayer,
-);
-export const chartNatalCommand = makeCommand(ProfileSlugInput, handleChartNatal, CompassLiveLayer);
-export const chartProgressedCommand = makeCommand(
-  ChartProgressedInput,
-  handleChartProgressed,
-  CompassLiveLayer,
-);
-export const chartTransitsCommand = makeCommand(
-  ChartTransitsInput,
-  handleChartTransits,
-  CompassLiveLayer,
-);
-export const chartSynastryCommand = makeCommand(
-  ChartRelationalInput,
-  handleChartSynastry,
-  CompassLiveLayer,
-);
-export const chartCompositeCommand = makeCommand(
-  ChartRelationalInput,
   handleChartComposite,
-  CompassLiveLayer,
+  handleChartNatal,
+  handleChartProgressed,
+  handleChartSynastry,
+  handleChartTransits,
+  makeChartCalculateCommand,
+  makeChartCompositeCommand,
+  makeChartNatalCommand,
+  makeChartProgressedCommand,
+  makeChartSynastryCommand,
+  makeChartTransitsCommand,
+} from "./Commands/ChartCommands.js";
+import { handlePing, pingCommand } from "./Commands/PingCommand.js";
+import {
+  handleProfileAdd,
+  handleProfileDelete,
+  handleProfileGet,
+  handleProfileList,
+  makeProfileAddCommand,
+  makeProfileDeleteCommand,
+  makeProfileGetCommand,
+  makeProfileListCommand,
+} from "./Commands/ProfileCommands.js";
+
+// Re-export command handlers and inputs for consumers & tests
+export {
+  handleChartCalculate,
+  handleChartComposite,
+  handleChartNatal,
+  handleChartProgressed,
+  handleChartSynastry,
+  handleChartTransits,
+  handlePing,
+  handleProfileAdd,
+  handleProfileDelete,
+  handleProfileGet,
+  handleProfileList,
+  pingCommand,
+};
+
+/**
+ * Combined runtime Layer for the CLI: All services + ProfileStore (FileSystem) provided with Ephemeris.
+ */
+export const CompassLive = Layer.provide(
+  Layer.mergeAll(
+    NatalService.layer,
+    ProgressedService.layer,
+    TransitsService.layer,
+    SynastryService.layer,
+    CompositeService.layer,
+    ProfileStore.fileSystemLayer(),
+  ),
+  Ephemeris.layer,
 );
+
+const NatalLive = Layer.provide(NatalService.layer, Ephemeris.layer);
+
+export const chartCalculateCommand = makeChartCalculateCommand(NatalLive);
+export const chartNatalCommand = makeChartNatalCommand(CompassLive);
+export const chartProgressedCommand = makeChartProgressedCommand(CompassLive);
+export const chartTransitsCommand = makeChartTransitsCommand(CompassLive);
+export const chartSynastryCommand = makeChartSynastryCommand(CompassLive);
+export const chartCompositeCommand = makeChartCompositeCommand(CompassLive);
+
+export const profileAddCommand = makeProfileAddCommand(CompassLive);
+export const profileListCommand = makeProfileListCommand(CompassLive);
+export const profileGetCommand = makeProfileGetCommand(CompassLive);
+export const profileDeleteCommand = makeProfileDeleteCommand(CompassLive);
 
 export const compassCliOptions: AxiCliOptions<undefined> = {
   description: "Deterministic Astrological Chart Engine & Profile Manager CLI (JWGEA Canonical)",

@@ -2,13 +2,10 @@ import { describe, expect, it } from "bun:test";
 import { AxiError } from "axi-sdk-js";
 import { Effect, Layer, Schema } from "effect";
 import { runEffectToAxi } from "../src/cli/Bridge.js";
-import {
-  DatabaseError,
-  EphemerisError,
-  ProfileNotFoundError,
-  ValidationError,
-} from "../src/core/Errors.js";
-import { Latitude } from "../src/core/Schema.js";
+import { Latitude } from "../src/core/Astronomy.js";
+import { EphemerisError } from "../src/core/Ephemeris.js";
+import { ValidationError } from "../src/core/Errors.js";
+import { DatabaseError, ProfileNotFoundError } from "../src/core/ProfileStore.js";
 
 describe("runEffectToAxi Bridge", () => {
   it("unwraps successful effect returning primitive string", async () => {

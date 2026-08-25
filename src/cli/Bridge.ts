@@ -1,12 +1,6 @@
 import { AxiError } from "axi-sdk-js";
 import { Cause, Effect, Exit, type Layer, Predicate, Schema } from "effect";
-import {
-  DatabaseError,
-  EphemerisError,
-  ProfileAlreadyExistsError,
-  ProfileNotFoundError,
-  ValidationError,
-} from "../core/Errors.js";
+import type { ValidationError } from "../core/Errors.js";
 
 export type AxiStructuredOutput = Record<string, unknown>;
 export type AxiRenderable = string | AxiStructuredOutput;
@@ -15,42 +9,40 @@ export type AxiRenderable = string | AxiStructuredOutput;
  * Maps a typed DomainError, SchemaError, or unknown defect from Effect to an AxiError with suggestions.
  */
 export function mapErrorToAxi(error: unknown): AxiError {
-  if (error instanceof ValidationError) {
-    const suggestions: string[] =
-      error.issues && error.issues.length > 0
-        ? [...error.issues]
-        : ["Check input parameters and format."];
-    return new AxiError(error.message, "VALIDATION_ERROR", suggestions);
-  }
-
   if (Schema.isSchemaError(error)) {
     return new AxiError(error.message, "VALIDATION_ERROR", [
       "Check input parameters against the required schema.",
     ]);
   }
 
-  if (error instanceof ProfileNotFoundError) {
-    return new AxiError(error.message, "NOT_FOUND", [
-      "Run 'compass profile list' to see all available profiles.",
-    ]);
-  }
-
-  if (error instanceof ProfileAlreadyExistsError) {
-    return new AxiError(error.message, "ALREADY_EXISTS", [
-      "Specify a different profile name or update the existing profile.",
-    ]);
-  }
-
-  if (error instanceof EphemerisError) {
-    return new AxiError(error.message, "ENGINE_ERROR", [
-      "Ensure date is within ephemeris range (1800-2100) and house system is supported.",
-    ]);
-  }
-
-  if (error instanceof DatabaseError) {
-    return new AxiError(error.message, "DATABASE_ERROR", [
-      "Ensure the database directory is writable and database is not locked.",
-    ]);
+  if (typeof error === "object" && error !== null && "_tag" in error) {
+    const tagged = error as { _tag: string; message: string; [key: string]: unknown };
+    switch (tagged._tag) {
+      case "ValidationError": {
+        const err = error as ValidationError;
+        const suggestions: string[] =
+          err.issues && err.issues.length > 0
+            ? [...err.issues]
+            : ["Check input parameters and format."];
+        return new AxiError(err.message, "VALIDATION_ERROR", suggestions);
+      }
+      case "ProfileNotFoundError":
+        return new AxiError(tagged.message, "NOT_FOUND", [
+          "Run 'compass profile list' to see all available profiles.",
+        ]);
+      case "ProfileAlreadyExistsError":
+        return new AxiError(tagged.message, "ALREADY_EXISTS", [
+          "Specify a different profile name or update the existing profile.",
+        ]);
+      case "EphemerisError":
+        return new AxiError(tagged.message, "ENGINE_ERROR", [
+          "Ensure date is within ephemeris range (1800-2100) and house system is supported.",
+        ]);
+      case "DatabaseError":
+        return new AxiError(tagged.message, "DATABASE_ERROR", [
+          "Ensure the database directory is writable and database is not locked.",
+        ]);
+    }
   }
 
   if (error instanceof AxiError) {
