@@ -1,8 +1,9 @@
 import { Context, DateTime, Effect, Layer } from "effect";
-import type { CelestialBody } from "./Astronomy.js";
-import type { NatalChart, SynastryChart } from "./Charts.js";
-import { Ephemeris, type EphemerisError } from "./Ephemeris.js";
-import { type AstrologicalAspect, JwgeaCrossContact } from "./Jwgea.js";
+import type { CelestialBody } from "../../core/Astronomy.js";
+import { Ephemeris, type EphemerisError } from "../../core/Ephemeris.js";
+import { type AstrologicalAspect, JwgeaCrossContact } from "../../core/Jwgea.js";
+import type { NatalChart } from "../natal/NatalChart.js";
+import type { SynastryChart } from "./SynastryChart.js";
 
 export class SynastryService extends Context.Service<
   SynastryService,
@@ -12,7 +13,7 @@ export class SynastryService extends Context.Service<
       chartB: NatalChart,
     ) => Effect.Effect<SynastryChart, EphemerisError>;
   }
->()("compass/core/SynastryService") {
+>()("compass/charts/synastry/SynastryService") {
   static readonly layer = Layer.effect(
     SynastryService,
     Effect.gen(function* () {

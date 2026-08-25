@@ -1,8 +1,9 @@
 import { progressedJd } from "caelus";
 import { Context, DateTime, Effect, Layer } from "effect";
-import type { NatalChart, ProgressedChart } from "./Charts.js";
-import { dateTimeToJulianDay, Ephemeris, type EphemerisError } from "./Ephemeris.js";
-import { computeJwgea } from "./Jwgea.js";
+import { dateTimeToJulianDay, Ephemeris, type EphemerisError } from "../../core/Ephemeris.js";
+import { computeJwgea } from "../../core/Jwgea.js";
+import type { NatalChart } from "../natal/NatalChart.js";
+import type { ProgressedChart } from "./ProgressedChart.js";
 
 export class ProgressedService extends Context.Service<
   ProgressedService,
@@ -12,7 +13,7 @@ export class ProgressedService extends Context.Service<
       targetUtc: DateTime.Utc,
     ) => Effect.Effect<ProgressedChart, EphemerisError>;
   }
->()("compass/core/ProgressedService") {
+>()("compass/charts/progressed/ProgressedService") {
   static readonly layer = Layer.effect(
     ProgressedService,
     Effect.gen(function* () {

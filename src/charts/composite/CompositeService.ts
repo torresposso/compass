@@ -1,8 +1,9 @@
 import type { BodyId } from "caelus";
 import { Context, DateTime, Effect, Layer } from "effect";
-import type { CompositeChart, NatalChart } from "./Charts.js";
-import { dateTimeToJulianDay, Ephemeris, type EphemerisError } from "./Ephemeris.js";
-import { computeJwgea, houseOfLongitude } from "./Jwgea.js";
+import { dateTimeToJulianDay, Ephemeris, type EphemerisError } from "../../core/Ephemeris.js";
+import { computeJwgea, houseOfLongitude } from "../../core/Jwgea.js";
+import type { NatalChart } from "../natal/NatalChart.js";
+import type { CompositeChart } from "./CompositeChart.js";
 
 export class CompositeService extends Context.Service<
   CompositeService,
@@ -12,7 +13,7 @@ export class CompositeService extends Context.Service<
       chartB: NatalChart,
     ) => Effect.Effect<CompositeChart, EphemerisError>;
   }
->()("compass/core/CompositeService") {
+>()("compass/charts/composite/CompositeService") {
   static readonly layer = Layer.effect(
     CompositeService,
     Effect.gen(function* () {

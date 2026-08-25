@@ -1,27 +1,35 @@
 import { type AxiCliOptions, runAxiCli } from "axi-sdk-js";
 import { Layer } from "effect";
-import { CompositeService } from "../core/CompositeService.js";
+import { CompositeService } from "../charts/composite/CompositeService.js";
+import { NatalService } from "../charts/natal/NatalService.js";
+import { ProgressedService } from "../charts/progressed/ProgressedService.js";
+import { SynastryService } from "../charts/synastry/SynastryService.js";
+import { TransitsService } from "../charts/transits/TransitsService.js";
 import { Ephemeris } from "../core/Ephemeris.js";
-import { NatalService } from "../core/NatalService.js";
 import { ProfileStore } from "../core/ProfileStore.js";
-import { ProgressedService } from "../core/ProgressedService.js";
-import { SynastryService } from "../core/SynastryService.js";
-import { TransitsService } from "../core/TransitsService.js";
 import { VERSION } from "../Version.js";
 import {
-  handleChartCalculate,
   handleChartComposite,
-  handleChartNatal,
-  handleChartProgressed,
-  handleChartSynastry,
-  handleChartTransits,
-  makeChartCalculateCommand,
   makeChartCompositeCommand,
+} from "./Commands/chart/CompositeCommands.js";
+import {
+  handleChartCalculate,
+  handleChartNatal,
+  makeChartCalculateCommand,
   makeChartNatalCommand,
+} from "./Commands/chart/NatalCommands.js";
+import {
+  handleChartProgressed,
   makeChartProgressedCommand,
+} from "./Commands/chart/ProgressedCommands.js";
+import {
+  handleChartSynastry,
   makeChartSynastryCommand,
+} from "./Commands/chart/SynastryCommands.js";
+import {
+  handleChartTransits,
   makeChartTransitsCommand,
-} from "./Commands/ChartCommands.js";
+} from "./Commands/chart/TransitsCommands.js";
 import { handlePing, pingCommand } from "./Commands/PingCommand.js";
 import {
   handleProfileAdd,

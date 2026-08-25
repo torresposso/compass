@@ -1,15 +1,15 @@
 import { Context, DateTime, Effect, Layer, Schema } from "effect";
-import { GeoLocation, Latitude, Longitude } from "./Astronomy.js";
-import type { NatalChart } from "./Charts.js";
-import { Ephemeris, type EphemerisError } from "./Ephemeris.js";
-import { computeJwgea } from "./Jwgea.js";
+import { GeoLocation, Latitude, Longitude } from "../../core/Astronomy.js";
+import { Ephemeris, type EphemerisError } from "../../core/Ephemeris.js";
+import { computeJwgea } from "../../core/Jwgea.js";
+import type { NatalChart } from "./NatalChart.js";
 
 /**
  * Request payload for calculating a natal chart on the fly.
  * Compass strictly uses Western Tropical zodiac and the Porphyry house system.
  */
 export class CalculateChartInput extends Schema.Class<CalculateChartInput>(
-  "compass/core/CalculateChartInput",
+  "compass/charts/natal/CalculateChartInput",
 )({
   whenUtc: Schema.DateTimeUtcFromString,
   latitude: Latitude,
@@ -22,7 +22,7 @@ export class NatalService extends Context.Service<
   {
     readonly natal: (input: CalculateChartInputType) => Effect.Effect<NatalChart, EphemerisError>;
   }
->()("compass/core/NatalService") {
+>()("compass/charts/natal/NatalService") {
   static readonly layer = Layer.effect(
     NatalService,
     Effect.gen(function* () {

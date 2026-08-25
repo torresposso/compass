@@ -1,13 +1,14 @@
 import type { BodyId } from "caelus";
 import { Context, DateTime, Effect, Layer } from "effect";
-import type { CelestialBody } from "./Astronomy.js";
-import type { NatalChart, TransitChart } from "./Charts.js";
-import { dateTimeToJulianDay, Ephemeris, type EphemerisError } from "./Ephemeris.js";
+import type { CelestialBody } from "../../core/Astronomy.js";
+import { dateTimeToJulianDay, Ephemeris, type EphemerisError } from "../../core/Ephemeris.js";
 import {
   type AstrologicalAspect,
   angularSeparation,
   JwgeaEvolutionaryActivation,
-} from "./Jwgea.js";
+} from "../../core/Jwgea.js";
+import type { NatalChart } from "../natal/NatalChart.js";
+import type { TransitChart } from "./TransitChart.js";
 
 export class TransitsService extends Context.Service<
   TransitsService,
@@ -17,7 +18,7 @@ export class TransitsService extends Context.Service<
       transitUtc: DateTime.Utc,
     ) => Effect.Effect<TransitChart, EphemerisError>;
   }
->()("compass/core/TransitsService") {
+>()("compass/charts/transits/TransitsService") {
   static readonly layer = Layer.effect(
     TransitsService,
     Effect.gen(function* () {
