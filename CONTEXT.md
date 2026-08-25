@@ -16,8 +16,8 @@ An astronomical chart calculated for a specific UTC date/time and geographic obs
 - **Porphyry House System** exclusively (the canonical house division system of JWGEA).
 - **True Lunar Node** exclusively (for the nodal axis).
 
-### ChartEngine
-The core calculation module providing chart computation and JWGEA evolutionary analysis behind a unified, deterministic interface.
+### Chart Services (Chart Engine)
+The domain calculation services providing deterministic chart computation and JWGEA evolutionary analysis. Each astrological chart dynamic is realized via a dedicated chart kind service (`NatalService`, `ProgressedService`, `TransitsService`, `SynastryService`, `CompositeService`) sharing a common `Ephemeris` seam.
 
 ### GeoLocation
 A geographic observer location represented by validated `Latitude` ([-90, +90]) and `Longitude` ([-180, +180]) coordinates.
